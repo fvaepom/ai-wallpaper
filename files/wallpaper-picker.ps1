@@ -3,6 +3,46 @@
 
 Add-Type -AssemblyName PresentationFramework, WindowsBase, System.Drawing
 
+# ── Shell 视频缩略图（视频卡片静态帧） ───────────────────
+if (-not ('ShellThumb' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Drawing;
+using System.Runtime.InteropServices;
+public class ShellThumb {
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    public static extern void SHCreateItemFromParsingName(string path, IntPtr pbc, ref Guid riid, out IShellItemImageFactory ppv);
+    [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IShellItemImageFactory {
+        void GetImage(SIZE size, int flags, out IntPtr phbm);
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SIZE { public int cx; public int cy; }
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr h);
+
+    public static Bitmap GetThumb(string path, int cx, int cy) {
+        Guid guid = new Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b");
+        IShellItemImageFactory factory;
+        SHCreateItemFromParsingName(path, IntPtr.Zero, ref guid, out factory);
+        SIZE size = new SIZE();
+        size.cx = cx;
+        size.cy = cy;
+        IntPtr hbm;
+        factory.GetImage(size, 0, out hbm);
+        Bitmap copy;
+        using (Bitmap raw = (Bitmap)Image.FromHbitmap(hbm)) {
+            // WTS 现场生成的 32bpp 位图 alpha 通道为 0（缓存命中才正常），
+            // 克隆为 24bpp 直接丢弃 alpha、保留 RGB 画面，否则 PNG 全透明导致卡片黑屏
+            copy = raw.Clone(new Rectangle(0, 0, raw.Width, raw.Height),
+                System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+        }
+        DeleteObject(hbm);
+        return copy;
+    }
+}
+'@ -ReferencedAssemblies System.Drawing
+}
+
 $wallDir = Join-Path $env:USERPROFILE '.zcode\wallpaper'
 $libDir  = Join-Path $wallDir 'library'
 $rotDir  = Join-Path $wallDir 'rotate'
@@ -32,26 +72,36 @@ function Save-Config($c) {
 }
 
 # ── 轮换集重建：rotate\rotate-N.<ext> + interval 标记 ─────
+function Touch-LiveMarker {
+    # 写刷新标记：ZCode 内的壁纸脚本每 8 秒探测一次，发现新标记即免重启热切换
+    if (-not (Test-Path $rotDir)) { New-Item -ItemType Directory -Path $rotDir -Force | Out-Null }
+    Get-ChildItem $rotDir -Filter 'refresh-*' -ErrorAction SilentlyContinue | Remove-Item -Force
+    $gif = [Convert]::FromBase64String('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
+    [IO.File]::WriteAllBytes((Join-Path $rotDir ("refresh-" + (Get-Random -Min 1 -Max 4) + ".gif")), $gif)
+}
+
 function Rebuild-Rotate {
     if (Test-Path $rotDir) {
         Get-ChildItem $rotDir -File -ErrorAction SilentlyContinue | Remove-Item -Force
     }
-    $cfg = Get-Config
-    if (-not $cfg.rotation) { return }
     New-Item -ItemType Directory -Path $rotDir -Force | Out-Null
-    $n = 1
-    foreach ($it in (@($cfg.items) | Where-Object { $_.rotate } | Sort-Object added)) {
-        $src = Join-Path $libDir $it.file
-        if (Test-Path $src) {
-            Copy-Item $src (Join-Path $rotDir ("rotate-$n" + [IO.Path]::GetExtension($it.file))) -Force
-            $n++
+    $cfg = Get-Config
+    if ($cfg.rotation) {
+        $n = 1
+        foreach ($it in (@($cfg.items) | Where-Object { $_.rotate } | Sort-Object added)) {
+            $src = Join-Path $libDir $it.file
+            if (Test-Path $src) {
+                Copy-Item $src (Join-Path $rotDir ("rotate-$n" + [IO.Path]::GetExtension($it.file))) -Force
+                $n++
+            }
+        }
+        if ($cfg.interval -gt 0) {
+            # 1x1 透明 GIF，文件名携带换片间隔（分钟），注入脚本探测得到
+            $gif = [Convert]::FromBase64String('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
+            [IO.File]::WriteAllBytes((Join-Path $rotDir "interval-$($cfg.interval).gif"), $gif)
         }
     }
-    if ($cfg.interval -gt 0) {
-        # 1x1 透明 GIF，文件名携带换片间隔（分钟），注入脚本探测得到
-        $gif = [Convert]::FromBase64String('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
-        [IO.File]::WriteAllBytes((Join-Path $rotDir "interval-$($cfg.interval).gif"), $gif)
-    }
+    Touch-LiveMarker
 }
 
 # ── XAML 界面 ────────────────────────────────────────────
@@ -415,6 +465,20 @@ $previewVideo.Add_MediaEnded({
 })
 
 # ── 工具函数 ─────────────────────────────────────────────
+function Preview-Temporary([string]$path) {
+    # 库卡片悬停：切到主预览临时播放该视频（复用已验证的单播放器，避免多路解码）
+    (Ctrl 'TabNow').IsChecked = $true
+    $previewEmpty.Visibility = 'Collapsed'
+    $badge.Visibility = 'Visible'
+    $badgeText.Text = '预览：{0}  ({1:N1} MB)' -f (Split-Path $path -Leaf), ((Get-Item $path).Length / 1MB)
+    $preview.Source = $null
+    $preview.Visibility = 'Collapsed'
+    Stop-PreviewVideo
+    $previewVideo.Visibility = 'Visible'
+    $previewVideo.Source = [Uri]$path
+    $previewVideo.Play()
+}
+
 function Get-ImageSource([string]$path) {
     $bi = New-Object Windows.Media.Imaging.BitmapImage
     $bi.BeginInit()
@@ -461,6 +525,36 @@ function Show-Empty {
 }
 
 function Update-Preview {
+    # 轮换开启时显示轮换集状态（ZCode 实际在播的就是轮换集，不是静态文件）
+    $cfg = Get-Config
+    if ($cfg.rotation) {
+        $rot1 = $null
+        foreach ($e in @('mp4', 'webm', 'gif', 'webp', 'png', 'jpg')) {
+            $cand = Join-Path $rotDir "rotate-1.$e"
+            if (Test-Path $cand) { $rot1 = $cand; break }
+        }
+        $n = @($cfg.items | Where-Object { $_.rotate }).Count
+        $iv = $cfg.interval
+        if ($rot1) {
+            $previewEmpty.Visibility = 'Collapsed'
+            $badge.Visibility = 'Visible'
+            $ivText = if ($iv -gt 0) { " · 每 $iv 分钟再换" } else { '' }
+            $badgeText.Text = "自动轮换中 · 共 $n 张$ivText"
+            if ($rot1 -match '\.(mp4|webm)$') {
+                $preview.Source = $null
+                $preview.Visibility = 'Collapsed'
+                $previewVideo.Visibility = 'Visible'
+                $previewVideo.Source = [Uri]$rot1
+                $previewVideo.Play()
+            } else {
+                Stop-PreviewVideo
+                $preview.Source = Get-ImageSource $rot1
+                $preview.Visibility = 'Visible'
+            }
+            $statusText.Text = "ZCode 正在自动轮换壁纸（$n 张参与$ivText）。想固定某一张：在壁纸库点「应用」，会自动暂停轮换。"
+            return
+        }
+    }
     $f = Get-WallpaperFile
     if (-not $f) { Show-Empty; return }
     $previewEmpty.Visibility = 'Collapsed'
@@ -513,13 +607,22 @@ function Import-Wallpaper([string]$file) {
 function Apply-LibraryItem($item) {
     $src = Join-Path $libDir $item.file
     if (-not (Test-Path $src)) { return }
+    $wasRotating = (Get-Config).rotation
     Get-ChildItem -Path (Join-Path $wallDir 'wallpaper.*') -ErrorAction SilentlyContinue | Remove-Item -Force
     Copy-Item $src (Join-Path $wallDir ("wallpaper" + [IO.Path]::GetExtension($item.file))) -Force
+    $msg = "已应用：$($item.file) · 几秒内 ZCode 自动切换"
+    if ($wasRotating) {
+        # 应用 = 固定这张，暂停轮换，保证选择器与 ZCode 显示一致
+        $cfg = Get-Config
+        $cfg.rotation = $false
+        Save-Config $cfg
+        Rebuild-Rotate
+        Update-Library
+        $msg += "`n（原轮换已暂停，开关可随时重新打开）"
+    }
     Update-Preview
-    $msg = "已应用：$($item.file)"
-    if ((Get-Config).rotation) { $msg += "`n注意：自动轮换开启中，下次打开 ZCode 仍会自动换张" }
     $statusText.Text = $msg
-    (Ctrl 'TabNow').IsSelected = $true
+    (Ctrl 'TabNow').IsChecked = $true
 }
 
 # ── 壁纸库网格 ───────────────────────────────────────────
@@ -559,6 +662,7 @@ function Update-Library {
         $src = Join-Path $libDir $it.file
         if (-not (Test-Path $src)) { continue }
         $isVideo = $it.file -match '\.(mp4|webm)$'
+        $thumbErr = ''
 
         $card = New-Object Windows.Controls.Border
         $card.Width = 150
@@ -580,52 +684,27 @@ function Update-Library {
         if ($isVideo) {
             $img = New-Object Windows.Controls.Image
             $img.Stretch = 'Uniform'
-            try { $img.Source = Get-ThumbSource $src } catch {}
-            $me = New-Object Windows.Controls.MediaElement
-            $me.Stretch = 'Uniform'
-            $me.IsMuted = $true
-            $me.Volume = 0
-            $me.LoadedBehavior = 'Manual'
-            $me.UnloadedBehavior = 'Close'
-            $me.Visibility = 'Collapsed'
-            $me.Add_MediaEnded({
-                $meSelf = $this
-                if ($meSelf.Source -ne $null) { $meSelf.Position = [TimeSpan]::Zero; $meSelf.Play() }
-            })
-            $panel.Children.Add($me) | Out-Null
-            [Windows.Controls.Grid]::SetRow($me, 0)
-            $clipBorder.Child = $img
-            # 悬停该卡片时才加载并播放视频，移开即停止释放解码器
-            $holder = @{ media = $me; src = $src; img = $img }
-            $clipBorder.Tag = $holder
+            try { $img.Source = Get-ThumbSource $src } catch { $thumbErr = $_.Exception.Message }
+            if ($img.Source -eq $null) { $thumbErr = 'SOURCE_NULL' }
+            if ($img.Source -ne $null -and $img.Source.PixelWidth -lt 10) { $thumbErr = 'TINY_' + $img.Source.PixelWidth }
+            $clipBorder.Tag = $src
             $clipBorder.Add_MouseEnter({
-                $h = $this.Tag
-                if ($h.media.Source -eq $null) {
-                    $h.media.Source = [Uri]$h.src
-                }
-                $h.media.Visibility = 'Visible'
-                $h.img.Visibility = 'Collapsed'
-                $h.media.Play()
+                $srcH = $this.Tag
+                if ($srcH) { Preview-Temporary $srcH }
             })
-            $clipBorder.Add_MouseLeave({
-                $h = $this.Tag
-                $h.media.Stop()
-                $h.media.Source = $null
-                $h.media.Visibility = 'Collapsed'
-                $h.img.Visibility = 'Visible'
-            })
+            $clipBorder.Add_MouseLeave({ Update-Preview })
         } else {
             $img = New-Object Windows.Controls.Image
             $img.Stretch = 'UniformToFill'
             try { $img.Source = Get-ImageSource $src } catch {}
-            $clipBorder.Child = $img
         }
+        $clipBorder.Child = $img
         [Windows.Controls.Grid]::SetRow($clipBorder, 0)
         $panel.Children.Add($clipBorder) | Out-Null
 
         # 名称
         $name = New-Object Windows.Controls.TextBlock
-        $name.Text = $it.file
+        $name.Text = $it.file + $(if ($thumbErr) { ' ⚠' + $thumbErr } else { '' })
         $name.FontSize = 10.5
         $name.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#9CA3AF')
         $name.TextTrimming = 'CharacterEllipsis'
@@ -719,8 +798,9 @@ $window.Add_Drop({
 
 (Ctrl 'BtnClear').Add_Click({
     Get-ChildItem -Path (Join-Path $wallDir 'wallpaper.*') -ErrorAction SilentlyContinue | Remove-Item -Force
+    Touch-LiveMarker
     Update-Preview
-    $statusText.Text = '已清除当前壁纸，重启 ZCode 后显示内置动态极光。'
+    $statusText.Text = '已清除当前壁纸，几秒内 ZCode 自动切换为内置动态极光。'
 })
 
 (Ctrl 'BtnOpen').Add_Click({ Start-Process explorer.exe -ArgumentList "`"$wallDir`"" })
@@ -752,7 +832,7 @@ $swRotate.Add_Click({
     $n = @($cfg.items | Where-Object { $_.rotate }).Count
     if ($cfg.rotation -and $n -eq 0) {
         $statusText.Text = '自动更换已开启，但还没有勾选任何壁纸——去「壁纸库」把想轮换的勾上。'
-        (Ctrl 'TabLib').IsSelected = $true
+        (Ctrl 'TabLib').IsChecked = $true
     } elseif ($cfg.rotation) {
         $statusText.Text = "自动更换已开启（$n 张）。每次打开 ZCode 自动换用下一张。"
     } else {

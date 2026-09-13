@@ -1,6 +1,8 @@
 /* zcode-wallpaper — 壁纸层 + 界面透明化注入脚本
  *
- * 由 apply-patch.ps1 注入到 ZCode 主窗口 index.html。
+ * 由 apply-patch.ps1 注入到应用主窗口 index.html。
+ * 同时适配 ZCode（--color-* 变量 / .dark 类）与 OpenCode 桌面端
+ * （--background-* 变量 / data-color-scheme 属性），未使用的变量集自动失效。
  * 壁纸查找顺序：
  *   1. 自动轮换（检测到 %USERPROFILE%\.zcode\wallpaper\rotate\rotate-1.* 时启用）：
  *      每次页面加载按 localStorage 计数器换下一张 rotate-N.*
@@ -71,6 +73,18 @@
     '  --color-card-selected:rgba(64,64,64,.85) !important;',
     '  --color-popover:rgba(38,38,38,.92) !important;',
     '  --color-input:rgba(38,38,38,.7) !important;}',
+
+    /* OpenCode 桌面端变量（弹层 --background-stronger 保持高不透明度保证可读） */
+    ':root,:host{',
+    '  --background-base:rgba(248,248,248,.66) !important;',
+    '  --background-weak:rgba(243,243,243,.52) !important;',
+    '  --background-strong:rgba(252,252,252,.6) !important;',
+    '  --background-stronger:rgba(252,252,252,.92) !important;}',
+    ':root[data-color-scheme="dark"]{',
+    '  --background-base:rgba(16,16,16,.6) !important;',
+    '  --background-weak:rgba(30,30,30,.5) !important;',
+    '  --background-strong:rgba(18,18,18,.55) !important;',
+    '  --background-stronger:rgba(21,21,21,.92) !important;}',
     'html,body{background:transparent !important;}'
   ].join('\n');
   document.head.appendChild(style);

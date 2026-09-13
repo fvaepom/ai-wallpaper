@@ -2,7 +2,7 @@
 
 # zcode-wallpaper 🖼️
 
-给 **ZCode Desktop**（OpenCode 系 AI 编程客户端）注入**动态壁纸背景**的社区补丁：
+给 **ZCode Desktop** 与 **OpenCode Desktop**（OpenCode 系 AI 编程客户端）注入**动态壁纸背景**的社区补丁：
 
 - 🎬 用**任意图片或视频**（mp4 / webm / gif / webp / png / jpg）作为整个界面的背景，视频静音循环播放
 - 🌌 未设置壁纸时显示内置的**动态极光渐变**兜底
@@ -38,14 +38,16 @@
 ## 环境要求
 
 - Windows 10/11
-- ZCode Desktop 3.x（其他版本或 OpenCode 桌面端原理相同，注入点可能不同，见下方"工作原理"）
+- ZCode Desktop 3.x / OpenCode Desktop（其他 Electron 应用原理相同，注入点可能不同，见下方"工作原理"）
 - Node.js（仅打补丁时需要，用到 `npx @electron/asar`；日常使用不需要）
 
 ## 安装
 
 ```powershell
-# 在仓库目录下执行（ZCode 需处于关闭状态）
-powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1
+# 在仓库目录下执行（目标应用需处于关闭状态）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1                    # ZCode
+powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App OpenCode     # OpenCode
+powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App WorkBuddy    # WorkBuddy
 ```
 
 脚本会自动：
@@ -53,8 +55,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1
 1. 探测 ZCode 安装目录（也可用 `-InstallDir "D:\..."` 指定）
 2. 备份 `resources\app.asar` → `resources\app.asar.zwp-backup`
 3. 解包 → 注入壁纸脚本 → 重新打包并校验
-4. 创建壁纸目录 `%USERPROFILE%\.zcode\wallpaper\`（含 `custom.css` 调参模板）
-5. 在桌面和开始菜单创建「ZCode壁纸选择器」快捷方式
+4. 创建壁纸目录 `%USERPROFILE%\.zcode\wallpaper\`（OpenCode 为 `~\.opencode\wallpaper\`，含 `custom.css` 调参模板）
+5. 在桌面和开始菜单创建「<应用名>壁纸选择器」快捷方式
 
 完成后启动 ZCode，看到标题 **✦** 即生效。
 
@@ -95,12 +97,29 @@ ZCode Desktop 是 Electron 应用，界面打包在 `resources\app.asar` 中：
    - 没有壁纸文件时启用 CSS 动画极光兜底
 4. 重新打包 asar 替换回去（`--unpack` 保持原生模块外置，打包后与原 `.unpacked` 目录清单比对校验）
 
+**WorkBuddy**（腾讯，Electron 37）不能走解包重打包，有三处特殊处理，由零依赖的 `files/patch-inplace.js` 完成：
+
+1. **asar 原地补丁**：其 asar 索引引用了约 3000 个 unpacked 文件（含安装器未落盘的跨平台残留条目），
+   解包重打包会破坏结构。原地补丁只改写头部 + 把新的 index.html / 注入脚本追加到归档末尾，
+   数据区与 `.unpacked` 完全不动，随后逐文件重算 SHA256 自校验后才替换。
+2. **主程序内嵌哈希同步**：WorkBuddy 主程序开启了 Electron 的 asar 完整性 fuse
+   （`EnableEmbeddedAsarIntegrityValidation`），exe 内嵌 JSON 存有 app.asar 头部的 SHA256，
+   头部一变应用就会在启动时被静默处决。补丁脚本会把 exe 里的旧哈希等长替换为新哈希（两处）。
+   ⚠️ 副作用：主程序的腾讯官方数字签名会失效（应用功能不受影响），在意签名校验的场景请勿使用。
+3. **透明化**：WorkBuddy 用 VS Code 主题变量 + 自带皮肤系统（`--wb-*` 设计令牌，主题装载在
+   构造式样式表 adoptedStyleSheets 里，页面级容器还会重新声明变量）。注入脚本运行时三管齐下：
+   内联 `!important` 覆盖 `--vscode-*`、改写 CSSOM 里 `--wb-home-bg-*` / `--wb-bg-*` 等作用域
+   声明（保留原色只压 alpha）、皮肤渐变图变量置空，并监听主题切换自动重覆盖。
+
+OpenCode / WorkBuddy 的壁纸目录与选择器快捷方式按应用名自动区分，互不影响。
+
 Electron 的 asar 本质是一个打包格式，任何 Electron 应用的 HTML 入口都可以用同样的思路注入自定义 CSS/JS——欢迎参考改造其他应用。
 
 ## 已知限制
 
-- ZCode **升级后补丁会被覆盖**，需要重新执行 `apply-patch.ps1`（先更新本仓库以适配新版，主 bundle 文件名带 hash 会变化，脚本用正则定位所以通常无需改动）
-- 硬编码的 Tailwind 类（不走语义变量的组件）不会被透明化
+- 应用**升级后补丁会被覆盖**，需要重新执行 `apply-patch.ps1`（先更新本仓库以适配新版，主 bundle 文件名带 hash 会变化，脚本用正则定位所以通常无需改动）。WorkBuddy 升级还会恢复其主程序（含新的内嵌哈希），重新打补丁即可。
+- WorkBuddy 个别深度定制的浮层可能仍不透明，可往 `custom.css` 加针对性覆盖；其自带的"个性主题/皮肤"与透明化叠加生效，建议二选一
+- 硬编码的 Tailwind 类 / 背景色（不走主题变量）的组件不会被透明化
 - 视频壁纸占用 GPU，低配机器建议用图片或 gif
 
 ## 许可
