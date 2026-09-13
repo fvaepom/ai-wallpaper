@@ -424,6 +424,20 @@ function Get-ImageSource([string]$path) {
     return $bi
 }
 
+function Get-ThumbSource([string]$path) {
+    # 视频静态帧（Shell 缩略图）→ 卡片默认显示用，悬停才真正播放
+    $bi = New-Object Windows.Media.Imaging.BitmapImage
+    $bi.BeginInit()
+    $bi.CacheOption = 'OnLoad'
+    $thumb = [ShellThumb]::GetThumb($path, 480, 270)
+    $ms = New-Object IO.MemoryStream
+    $thumb.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    $thumb.Dispose()
+    $bi.StreamSource = $ms
+    $bi.EndInit()
+    return $bi
+}
+
 function Get-WallpaperFile {
     foreach ($e in @('mp4', 'webm', 'gif', 'webp', 'png', 'jpg')) {
         $f = Join-Path $wallDir "wallpaper.$e"
@@ -558,25 +572,48 @@ function Update-Library {
         $r2 = New-Object Windows.Controls.RowDefinition; $r2.Height = [Windows.GridLength]::Auto
         $panel.RowDefinitions.Add($r0); $panel.RowDefinitions.Add($r1); $panel.RowDefinitions.Add($r2)
 
-        # 媒体区：视频 → MediaElement 自动播放；图片 → Image
+        # 媒体区：视频 → 静态帧 + 悬停播放（避免多路同时解码卡顿）；图片 → Image
         $clipBorder = New-Object Windows.Controls.Border
         $clipBorder.CornerRadius = New-Object Windows.CornerRadius 8, 8, 0, 0
         $clipBorder.ClipToBounds = $true
         $clipBorder.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#0B0D12')
         if ($isVideo) {
+            $img = New-Object Windows.Controls.Image
+            $img.Stretch = 'Uniform'
+            try { $img.Source = Get-ThumbSource $src } catch {}
             $me = New-Object Windows.Controls.MediaElement
             $me.Stretch = 'Uniform'
             $me.IsMuted = $true
             $me.Volume = 0
-            $me.LoadedBehavior = 'Play'
+            $me.LoadedBehavior = 'Manual'
             $me.UnloadedBehavior = 'Close'
-            $me.Source = [Uri]$src
+            $me.Visibility = 'Collapsed'
             $me.Add_MediaEnded({
                 $meSelf = $this
-                $meSelf.Position = [TimeSpan]::Zero
-                $meSelf.Play()
+                if ($meSelf.Source -ne $null) { $meSelf.Position = [TimeSpan]::Zero; $meSelf.Play() }
             })
-            $clipBorder.Child = $me
+            $panel.Children.Add($me) | Out-Null
+            [Windows.Controls.Grid]::SetRow($me, 0)
+            $clipBorder.Child = $img
+            # 悬停该卡片时才加载并播放视频，移开即停止释放解码器
+            $holder = @{ media = $me; src = $src; img = $img }
+            $clipBorder.Tag = $holder
+            $clipBorder.Add_MouseEnter({
+                $h = $this.Tag
+                if ($h.media.Source -eq $null) {
+                    $h.media.Source = [Uri]$h.src
+                }
+                $h.media.Visibility = 'Visible'
+                $h.img.Visibility = 'Collapsed'
+                $h.media.Play()
+            })
+            $clipBorder.Add_MouseLeave({
+                $h = $this.Tag
+                $h.media.Stop()
+                $h.media.Source = $null
+                $h.media.Visibility = 'Collapsed'
+                $h.img.Visibility = 'Visible'
+            })
         } else {
             $img = New-Object Windows.Controls.Image
             $img.Stretch = 'UniformToFill'
