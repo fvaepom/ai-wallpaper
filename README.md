@@ -1,3 +1,5 @@
+<img src="files/app.ico" width="72" align="right" alt=""/>
+
 # zcode-wallpaper 🖼️
 
 给 **ZCode Desktop**（OpenCode 系 AI 编程客户端）注入**动态壁纸背景**的社区补丁：

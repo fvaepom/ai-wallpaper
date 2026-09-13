@@ -58,7 +58,7 @@ function Rebuild-Rotate {
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ZCode 壁纸设置" Height="672" Width="560"
+        Title="ZCode 壁纸设置" Height="566" Width="560"
         WindowStartupLocation="CenterScreen" WindowStyle="None"
         AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" Topmost="True" FontFamily="Microsoft YaHei UI"
@@ -204,6 +204,34 @@ function Rebuild-Rotate {
         </Setter.Value>
       </Setter>
     </Style>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ScrollBar">
+            <Grid Background="Transparent">
+              <Track x:Name="PART_Track" IsDirectionReversed="True">
+                <Track.Thumb>
+                  <Thumb>
+                    <Thumb.Template>
+                      <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="tb" Background="#3A4050" CornerRadius="4"/>
+                        <ControlTemplate.Triggers>
+                          <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="tb" Property="Background" Value="#4A5268"/>
+                          </Trigger>
+                        </ControlTemplate.Triggers>
+                      </ControlTemplate>
+                    </Thumb.Template>
+                  </Thumb>
+                </Track.Thumb>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="IvPill" TargetType="RadioButton">
       <Setter Property="Foreground" Value="#8A90A0"/>
       <Setter Property="FontSize" Value="11"/>
@@ -269,7 +297,7 @@ function Rebuild-Rotate {
               <RowDefinition Height="*"/>
               <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <Border Grid.Row="0" CornerRadius="10" Background="#0B0D12"
+            <Border Grid.Row="0" CornerRadius="10" Background="#0B0D12" Height="292.5"
                     BorderBrush="#242835" BorderThickness="1" ClipToBounds="True">
               <Grid x:Name="PreviewArea" Background="Transparent">
                 <Image x:Name="Preview" Stretch="Uniform" Visibility="Collapsed"/>
@@ -519,10 +547,10 @@ function Update-Library {
         $isVideo = $it.file -match '\.(mp4|webm)$'
 
         $card = New-Object Windows.Controls.Border
-        $card.Width = 156
+        $card.Width = 150
         $card.CornerRadius = New-Object Windows.CornerRadius 8
         $card.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#20242E')
-        $card.Margin = New-Object Windows.Thickness 0, 0, 10, 10
+        $card.Margin = New-Object Windows.Thickness 0, 0, 8, 8
 
         $panel = New-Object Windows.Controls.Grid
         $r0 = New-Object Windows.Controls.RowDefinition; $r0.Height = New-Object Windows.GridLength 84
@@ -624,8 +652,17 @@ function Update-Library {
 (Ctrl 'BtnClose').Add_Click({ $window.Close() })
 (Ctrl 'BtnMin').Add_Click({ $window.WindowState = 'Minimized' })
 
-(Ctrl 'TabNow').Add_Checked({ (Ctrl 'PageNow').Visibility = 'Visible'; (Ctrl 'PageLib').Visibility = 'Collapsed' })
-(Ctrl 'TabLib').Add_Checked({ (Ctrl 'PageLib').Visibility = 'Visible';  (Ctrl 'PageNow').Visibility = 'Collapsed'; Update-Library })
+(Ctrl 'TabNow').Add_Checked({
+    (Ctrl 'PageNow').Visibility = 'Visible'
+    (Ctrl 'PageLib').Visibility = 'Collapsed'
+    $window.Height = 566
+})
+(Ctrl 'TabLib').Add_Checked({
+    (Ctrl 'PageLib').Visibility = 'Visible'
+    (Ctrl 'PageNow').Visibility = 'Collapsed'
+    $window.Height = 672
+    Update-Library
+})
 
 (Ctrl 'BtnPick').Add_Click({
     $dlg = New-Object Microsoft.Win32.OpenFileDialog

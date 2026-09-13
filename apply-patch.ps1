@@ -170,6 +170,7 @@ if (-not (Test-Path $customCss)) {
 # 快捷方式
 if (-not $NoShortcut) {
     Write-Step "创建「ZCode壁纸选择器」快捷方式"
+    Copy-Item (Join-Path $Script:RepoFiles 'app.ico') (Join-Path $wallDir 'app.ico') -Force
     Copy-Item (Join-Path $Script:RepoFiles 'wallpaper-picker.ps1') (Join-Path $wallDir 'wallpaper-picker.ps1') -Force
     $launcher = Join-Path $wallDir 'ZCode壁纸选择器.cmd'
     [IO.File]::WriteAllText($launcher,
@@ -180,7 +181,7 @@ if (-not $NoShortcut) {
         $lnk = $ws.CreateShortcut((Join-Path $base 'ZCode壁纸选择器.lnk'))
         $lnk.TargetPath = $launcher
         $lnk.WorkingDirectory = $wallDir
-        $lnk.IconLocation = '%SystemRoot%\System32\imageres.dll,109'
+        $lnk.IconLocation = "$wallDir\app.ico,0"
         $lnk.Save()
     }
     Write-Ok "桌面 + 开始菜单快捷方式已创建"
