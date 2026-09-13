@@ -1,0 +1,8 @@
+# 绝不上传程序本体或备份（版权 + 体积）
+*.asar
+app.asar*
+*.zwp-backup
+
+# 本机调试产物
+.mimosa/
+node_modules/
