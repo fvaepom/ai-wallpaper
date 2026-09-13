@@ -2,10 +2,12 @@
  *
  * 由 apply-patch.ps1 注入到 ZCode 主窗口 index.html。
  * 壁纸查找顺序：
- *   1. %USERPROFILE%\.zcode\wallpaper\wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
- *      （__WALLPAPER_DIR__ 占位符由补丁脚本替换为实际用户目录）
- *   2. 本文件同目录下的 wallpaper.*
- *   3. 都没有 → 内置动态极光渐变兜底
+ *   1. 自动轮换（检测到 %USERPROFILE%\.zcode\wallpaper\rotate\rotate-1.* 时启用）：
+ *      每次页面加载按 localStorage 计数器换下一张 rotate-N.*
+ *   2. %USERPROFILE%\.zcode\wallpaper\wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
+ *   3. 本文件同目录下的 wallpaper.*
+ *   4. 都没有 → 内置"动态极光渐变"兜底
+ * （__WALLPAPER_DIR__ 占位符由 apply-patch.ps1 替换为实际用户目录）
  */
 ;(function () {
   if (document.getElementById('oc-wallpaper')) return;
@@ -84,7 +86,12 @@
 
   /* ── 用户自定义微调：wallpaper 目录下的 custom.css ─ */
   var WALLPAPER_DIR = '__WALLPAPER_DIR__/'; // 占位符，由 apply-patch.ps1 替换
-  if (WALLPAPER_DIR.indexOf('__') === -1) {
+  var HERE = './';
+  var hasUserDir = WALLPAPER_DIR.indexOf('__') === -1;
+  var ROTATE_DIR = hasUserDir ? WALLPAPER_DIR + 'rotate/' : null;
+  var exts = ['mp4', 'webm', 'gif', 'webp', 'png', 'jpg'];
+
+  if (hasUserDir) {
     try {
       var customLink = document.createElement('link');
       customLink.rel = 'stylesheet';
@@ -99,62 +106,87 @@
     layer.appendChild(shade);
   }
 
-  /* ── 探测用户壁纸文件（外部目录优先，其次同目录） ── */
-  var exts = ['mp4', 'webm', 'gif', 'webp', 'png', 'jpg'];
-  var HERE = './';
-  var HERE_ONLY = WALLPAPER_DIR.indexOf('__') !== -1; // 占位符未替换时只探测同目录
-
-  function candidates() {
-    var list = [];
-    var bases = HERE_ONLY ? [HERE] : [WALLPAPER_DIR, HERE];
-    for (var d = 0; d < bases.length; d++) {
-      for (var i = 0; i < exts.length; i++) list.push({ base: bases[d], ext: exts[i] });
-    }
-    return list;
+  function applyMedia(el) {
+    layer.className = '';
+    layer.innerHTML = '';
+    el.style.opacity = (el.tagName === 'VIDEO' ? CONFIG.videoOpacity : CONFIG.imageOpacity);
+    layer.appendChild(el);
+    addShade();
+    if (el.tagName === 'VIDEO') { el.play().catch(function () {}); }
   }
 
-  function tryNext(idx) {
-    var list = candidates();
-    if (idx >= list.length) return; // 没有壁纸文件，保留极光兜底
-    var c = list[idx];
-    var url = c.base + 'wallpaper.' + c.ext;
-    var isVideo = c.ext === 'mp4' || c.ext === 'webm';
+  /* 探测一个媒体 URL：成功回调 el，失败回调 fail */
+  function loadMedia(url, onOk, onFail, timeoutMs) {
+    var isVideo = /\.(mp4|webm)$/i.test(url);
     if (isVideo) {
       var v = document.createElement('video');
-      v.src = url;
-      v.autoplay = true;
-      v.loop = true;
-      v.muted = true;
-      v.playsInline = true;
-      v.style.opacity = CONFIG.videoOpacity;
       var done = false;
+      v.muted = true;
+      v.loop = true;
+      v.autoplay = true;
+      v.playsInline = true;
       v.addEventListener('loadeddata', function () {
-        if (done) return;
-        done = true;
-        layer.className = '';
-        layer.appendChild(v);
-        addShade();
-        v.play().catch(function () {});
+        if (done) return; done = true; onOk(v);
       });
       v.addEventListener('error', function () {
-        if (done) return;
-        done = true;
-        tryNext(idx + 1);
+        if (done) return; done = true; onFail();
       });
+      v.src = url;
       setTimeout(function () {
-        if (!done) { done = true; v.removeAttribute('src'); v.load(); tryNext(idx + 1); }
-      }, 4000);
+        if (!done) { done = true; v.removeAttribute('src'); v.load(); onFail(); }
+      }, timeoutMs || 5000);
     } else {
       var img = new Image();
-      img.onload = function () {
-        layer.className = '';
-        img.style.opacity = CONFIG.imageOpacity;
-        layer.appendChild(img);
-        addShade();
-      };
-      img.onerror = function () { tryNext(idx + 1); };
+      img.onload = function () { onOk(img); };
+      img.onerror = onFail;
       img.src = url;
     }
   }
-  tryNext(0);
+
+  /* 依次探测 url 列表（串行，命中即止） */
+  function probeList(urls, onOk, onExhausted) {
+    var i = 0;
+    (function next() {
+      if (i >= urls.length) { onExhausted(); return; }
+      var url = urls[i++];
+      loadMedia(url, function (el) { onOk(el); }, next);
+    })();
+  }
+
+  /* ── 1) 自动轮换：rotate/rotate-N.* 存在即启用 ── */
+  function rotateStart() {
+    var idx = 0;
+    try { idx = parseInt(localStorage.getItem('oc-wp-idx') || '0', 10) || 0; } catch (e) {}
+    tryRotate(idx + 1);
+  }
+
+  function tryRotate(n) {
+    var urls = [];
+    for (var i = 0; i < exts.length; i++) urls.push(ROTATE_DIR + 'rotate-' + n + '.' + exts[i]);
+    probeList(urls, function (el) {
+      try { localStorage.setItem('oc-wp-idx', String(n)); } catch (e) {}
+      applyMedia(el);
+    }, function () {
+      if (n > 1) tryRotate(1);   // 越界 → 回到第一张
+      else probeStatic(0);       // 轮换集被清空 → 静态回落
+    });
+  }
+
+  /* ── 2) 静态壁纸：wallpaper.<ext> ── */
+  var staticDirs = hasUserDir ? [WALLPAPER_DIR, HERE] : [HERE];
+  function probeStatic(dirIdx) {
+    if (dirIdx >= staticDirs.length) return; // 极光兜底
+    var urls = [];
+    for (var i = 0; i < exts.length; i++) urls.push(staticDirs[dirIdx] + 'wallpaper.' + exts[i]);
+    probeList(urls, applyMedia, function () { probeStatic(dirIdx + 1); });
+  }
+
+  /* ── 启动：先检测轮换是否开启 ── */
+  if (ROTATE_DIR) {
+    var rotUrls = [];
+    for (var r = 0; r < exts.length; r++) rotUrls.push(ROTATE_DIR + 'rotate-1.' + exts[r]);
+    probeList(rotUrls, rotateStart, function () { probeStatic(0); });
+  } else {
+    probeStatic(0);
+  }
 })();
