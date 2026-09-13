@@ -1,5 +1,5 @@
-﻿# zcode-wallpaper — ZCode 壁纸选择器（现代深色 UI · 壁纸库 · 自动轮换）
-# 图片/视频均可；支持拖拽导入；可管理壁纸库并设置每次打开 ZCode 自动更换。
+﻿# zcode-wallpaper — ZCode 壁纸选择器（现代深色 UI · 壁纸库 · 自动轮换 · 视频实时预览）
+# 图片/视频均可；支持拖拽导入；可管理壁纸库并设置打开时换张 / 定时自动换张。
 
 Add-Type -AssemblyName PresentationFramework, WindowsBase, System.Drawing
 
@@ -11,61 +11,27 @@ foreach ($d in @($wallDir, $libDir)) {
     if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
 }
 
-# ── Shell 视频缩略图（视频预览用） ───────────────────────
-if (-not ('ShellThumb' -as [type])) {
-    Add-Type -TypeDefinition @'
-using System;
-using System.Drawing;
-using System.Runtime.InteropServices;
-public class ShellThumb {
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
-    public static extern void SHCreateItemFromParsingName(string path, IntPtr pbc, ref Guid riid, out IShellItemImageFactory ppv);
-    [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IShellItemImageFactory {
-        void GetImage(SIZE size, int flags, out IntPtr phbm);
-    }
-    [StructLayout(LayoutKind.Sequential)]
-    public struct SIZE { public int cx; public int cy; }
-    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr h);
-
-    public static Bitmap GetThumb(string path, int cx, int cy) {
-        Guid guid = new Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b");
-        IShellItemImageFactory factory;
-        SHCreateItemFromParsingName(path, IntPtr.Zero, ref guid, out factory);
-        SIZE size = new SIZE();
-        size.cx = cx;
-        size.cy = cy;
-        IntPtr hbm;
-        factory.GetImage(size, 0, out hbm);
-        Bitmap copy;
-        using (Bitmap tmp = (Bitmap)Image.FromHbitmap(hbm)) {
-            copy = new Bitmap(tmp);
-        }
-        DeleteObject(hbm);
-        return copy;
-    }
-}
-'@ -ReferencedAssemblies System.Drawing
-}
-
-# ── 配置（library.json） ─────────────────────────────────
+# ── 配置（config.json） ──────────────────────────────────
 function Get-Config {
     if (Test-Path $cfgPath) {
         try {
             $c = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $iv = 0
+            if ($c.interval) { $iv = [int]$c.interval }
             return [pscustomobject]@{
                 rotation = [bool]$c.rotation
+                interval = $iv
                 items    = @($c.items)
             }
         } catch {}
     }
-    return [pscustomobject]@{ rotation = $false; items = @() }
+    return [pscustomobject]@{ rotation = $false; interval = 0; items = @() }
 }
 function Save-Config($c) {
     $c | ConvertTo-Json -Depth 6 | Set-Content -Path $cfgPath -Encoding UTF8
 }
 
-# ── 轮换集重建：rotate\rotate-N.<ext> ────────────────────
+# ── 轮换集重建：rotate\rotate-N.<ext> + interval 标记 ─────
 function Rebuild-Rotate {
     if (Test-Path $rotDir) {
         Get-ChildItem $rotDir -File -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -80,6 +46,11 @@ function Rebuild-Rotate {
             Copy-Item $src (Join-Path $rotDir ("rotate-$n" + [IO.Path]::GetExtension($it.file))) -Force
             $n++
         }
+    }
+    if ($cfg.interval -gt 0) {
+        # 1x1 透明 GIF，文件名携带换片间隔（分钟），注入脚本探测得到
+        $gif = [Convert]::FromBase64String('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
+        [IO.File]::WriteAllBytes((Join-Path $rotDir "interval-$($cfg.interval).gif"), $gif)
     }
 }
 
@@ -133,6 +104,28 @@ function Rebuild-Rotate {
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="#313646"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="BtnMini" TargetType="Button">
+      <Setter Property="Background" Value="#262A35"/>
+      <Setter Property="Foreground" Value="#C9CEDA"/>
+      <Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="Height" Value="24"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="6">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#333849"/>
+                <Setter Property="Foreground" Value="#ECECEC"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -211,6 +204,29 @@ function Rebuild-Rotate {
         </Setter.Value>
       </Setter>
     </Style>
+    <Style x:Key="IvPill" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#8A90A0"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="bd" Background="#262A35" CornerRadius="12" Padding="11,4" Margin="0,0,6,0">
+              <ContentPresenter Content="{TemplateBinding Content}" HorizontalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#3B82F6"/>
+                <Setter Property="Foreground" Value="White"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#313646"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Window.Resources>
 
   <Border CornerRadius="14" Background="#1B1D23" BorderBrush="#2A2E3B" BorderThickness="1">
@@ -253,10 +269,13 @@ function Rebuild-Rotate {
               <RowDefinition Height="*"/>
               <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <Border Grid.Row="0" CornerRadius="10" Background="#101218"
+            <Border Grid.Row="0" CornerRadius="10" Background="#0B0D12"
                     BorderBrush="#242835" BorderThickness="1" ClipToBounds="True">
               <Grid x:Name="PreviewArea" Background="Transparent">
-                <Image x:Name="Preview" Stretch="UniformToFill" Visibility="Collapsed"/>
+                <Image x:Name="Preview" Stretch="Uniform" Visibility="Collapsed"/>
+                <MediaElement x:Name="PreviewVideo" Stretch="Uniform" Visibility="Collapsed"
+                              LoadedBehavior="Manual" UnloadedBehavior="Close" IsMuted="True"
+                              Volume="0" SpeedRatio="1"/>
                 <StackPanel x:Name="PreviewEmpty" HorizontalAlignment="Center" VerticalAlignment="Center">
                   <Grid Width="48" Height="48" HorizontalAlignment="Center">
                     <Ellipse Width="48" Height="48">
@@ -280,7 +299,7 @@ function Rebuild-Rotate {
                              HorizontalAlignment="Center" Margin="0,10,0,0"/>
                 </StackPanel>
                 <Border x:Name="Badge" CornerRadius="6" Background="#CC101218" Padding="10,5"
-                        HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,0,0,10" Visibility="Collapsed">
+                        HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,10,0,10" Visibility="Collapsed">
                   <TextBlock x:Name="BadgeText" Foreground="#C9CEDA" FontSize="11.5"/>
                 </Border>
               </Grid>
@@ -302,10 +321,11 @@ function Rebuild-Rotate {
           <Grid x:Name="PageLib" Visibility="Collapsed">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
               <RowDefinition Height="*"/>
               <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
-            <Border Grid.Row="0" Background="#101218" CornerRadius="10" Padding="14,10" Margin="0,0,0,10"
+            <Border Grid.Row="0" Background="#101218" CornerRadius="10" Padding="14,10" Margin="0,0,0,8"
                     BorderBrush="#242835" BorderThickness="1">
               <Grid>
                 <Grid.ColumnDefinitions>
@@ -313,21 +333,30 @@ function Rebuild-Rotate {
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                  <TextBlock Text="打开 ZCode 时自动更换壁纸" Foreground="#ECECEC" FontSize="12.5"/>
-                  <TextBlock Text="开启后每次打开 ZCode 自动换用下面勾选的下一张壁纸" Foreground="#6B7183" FontSize="10.5" Margin="0,2,0,0"/>
+                  <TextBlock Text="自动更换壁纸" Foreground="#ECECEC" FontSize="12.5"/>
+                  <TextBlock x:Name="RotHint" Text="开启后每次打开 ZCode 自动换用下面勾选的下一张壁纸" Foreground="#6B7183" FontSize="10.5" Margin="0,2,0,0"/>
                 </StackPanel>
                 <CheckBox Grid.Column="1" x:Name="SwRotate" Style="{StaticResource Switch}" VerticalAlignment="Center"/>
               </Grid>
             </Border>
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Grid.Row="1" x:Name="IntervalRow" Orientation="Horizontal" Margin="4,0,0,10" Visibility="Collapsed">
+              <TextBlock Text="换片间隔" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
+              <RadioButton x:Name="Iv0"  Style="{StaticResource IvPill}" GroupName="iv" Content="仅打开时" Tag="0" IsChecked="True"/>
+              <RadioButton x:Name="Iv1"  Style="{StaticResource IvPill}" GroupName="iv" Content="1分钟" Tag="1"/>
+              <RadioButton x:Name="Iv5"  Style="{StaticResource IvPill}" GroupName="iv" Content="5分钟" Tag="5"/>
+              <RadioButton x:Name="Iv15" Style="{StaticResource IvPill}" GroupName="iv" Content="15分钟" Tag="15"/>
+              <RadioButton x:Name="Iv30" Style="{StaticResource IvPill}" GroupName="iv" Content="30分钟" Tag="30"/>
+              <RadioButton x:Name="Iv60" Style="{StaticResource IvPill}" GroupName="iv" Content="1小时" Tag="60"/>
+            </StackPanel>
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
               <StackPanel>
                 <WrapPanel x:Name="LibPanel"/>
                 <TextBlock x:Name="LibEmpty" Text="壁纸库为空 · 在「当前壁纸」页选择或拖入文件即可收藏"
                            Foreground="#6B7183" FontSize="12" HorizontalAlignment="Center" Margin="0,40,0,0"/>
               </StackPanel>
             </ScrollViewer>
-            <TextBlock Grid.Row="2" Foreground="#4E5464" FontSize="10.5" Margin="2,8,0,0"
-                       Text="单击卡片应用为当前壁纸（勾选「轮换」的壁纸参与自动更换）"/>
+            <TextBlock Grid.Row="3" Foreground="#4E5464" FontSize="10.5" Margin="2,8,0,0"
+                       Text="单击卡片应用为当前壁纸 · 勾选「轮换」的壁纸参与自动更换 · 视频卡片自动循环播放预览"/>
           </Grid>
         </Grid>
       </Grid>
@@ -341,6 +370,7 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 
 function Ctrl($name) { $window.FindName($name) }
 $preview      = Ctrl 'Preview'
+$previewVideo = Ctrl 'PreviewVideo'
 $previewEmpty = Ctrl 'PreviewEmpty'
 $badge        = Ctrl 'Badge'
 $badgeText    = Ctrl 'BadgeText'
@@ -350,21 +380,18 @@ $libPanel     = Ctrl 'LibPanel'
 $libEmpty     = Ctrl 'LibEmpty'
 $swRotate     = Ctrl 'SwRotate'
 
+# 视频循环播放（一次订阅）
+$previewVideo.Add_MediaEnded({
+    $previewVideo.Position = [TimeSpan]::Zero
+    $previewVideo.Play()
+})
+
 # ── 工具函数 ─────────────────────────────────────────────
-function Get-ThumbImage([string]$path) {
-    # 返回 BitmapImage；视频走 Shell 缩略图
+function Get-ImageSource([string]$path) {
     $bi = New-Object Windows.Media.Imaging.BitmapImage
     $bi.BeginInit()
     $bi.CacheOption = 'OnLoad'
-    if ($path -match '\.(mp4|webm)$') {
-        $thumb = [ShellThumb]::GetThumb($path, 400, 225)
-        $ms = New-Object IO.MemoryStream
-        $thumb.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-        $thumb.Dispose()
-        $bi.StreamSource = $ms
-    } else {
-        $bi.UriSource = [Uri]$path
-    }
+    $bi.UriSource = [Uri]$path
     $bi.EndInit()
     return $bi
 }
@@ -377,24 +404,37 @@ function Get-WallpaperFile {
     return $null
 }
 
+function Stop-PreviewVideo {
+    $previewVideo.Stop()
+    $previewVideo.Source = $null
+    $previewVideo.Visibility = 'Collapsed'
+}
+
 function Show-Empty {
     $preview.Source = $null
     $preview.Visibility = 'Collapsed'
+    Stop-PreviewVideo
     $previewEmpty.Visibility = 'Visible'
     $badge.Visibility = 'Collapsed'
 }
 
 function Update-Preview {
     $f = Get-WallpaperFile
-    if ($f) {
-        try {
-            $preview.Source = Get-ThumbImage $f
-            $preview.Visibility = 'Visible'
-            $previewEmpty.Visibility = 'Collapsed'
-            $badge.Visibility = 'Visible'
-            $badgeText.Text = '{0}  ({1:N1} MB)' -f (Split-Path $f -Leaf), ((Get-Item $f).Length / 1MB)
-        } catch { Show-Empty }
-    } else { Show-Empty }
+    if (-not $f) { Show-Empty; return }
+    $previewEmpty.Visibility = 'Collapsed'
+    $badge.Visibility = 'Visible'
+    $badgeText.Text = '{0}  ({1:N1} MB)' -f (Split-Path $f -Leaf), ((Get-Item $f).Length / 1MB)
+    if ($f -match '\.(mp4|webm)$') {
+        $preview.Source = $null
+        $preview.Visibility = 'Collapsed'
+        $previewVideo.Visibility = 'Visible'
+        $previewVideo.Source = [Uri]$f
+        $previewVideo.Play()
+    } else {
+        Stop-PreviewVideo
+        $preview.Source = Get-ImageSource $f
+        $preview.Visibility = 'Visible'
+    }
 }
 
 function Import-Wallpaper([string]$file) {
@@ -412,16 +452,15 @@ function Import-Wallpaper([string]$file) {
 
     $cfg = Get-Config
     $entry = [pscustomobject]@{
-        file  = $libName
-        type  = $type
+        file   = $libName
+        type   = $type
         rotate = $cfg.rotation
-        added = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        added  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
     }
     $cfg.items = @($cfg.items) + $entry
     Save-Config $cfg
     Rebuild-Rotate
 
-    # 应用为当前壁纸
     Get-ChildItem -Path (Join-Path $wallDir 'wallpaper.*') -ErrorAction SilentlyContinue | Remove-Item -Force
     Copy-Item (Join-Path $libDir $libName) (Join-Path $wallDir "wallpaper$ext") -Force
     Update-Preview
@@ -441,23 +480,48 @@ function Apply-LibraryItem($item) {
     (Ctrl 'TabNow').IsSelected = $true
 }
 
+# ── 壁纸库网格 ───────────────────────────────────────────
+function New-MiniButton([string]$text, $tag) {
+    $b = New-Object Windows.Controls.Button
+    $b.Content = $text
+    $b.Tag = $tag
+    $b.Style = $window.Resources['BtnMini']
+    return $b
+}
+
 function Update-Library {
     $cfg = Get-Config
     $swRotate.IsChecked = $cfg.rotation
+    $vis = 'Collapsed'
+    if ($cfg.rotation) { $vis = 'Visible' }
+    (Ctrl 'IntervalRow').Visibility = $vis
+    $iv = $cfg.interval
+    foreach ($pair in @(@('Iv0', 0), @('Iv1', 1), @('Iv5', 5), @('Iv15', 15), @('Iv30', 30), @('Iv60', 60))) {
+        (Ctrl $pair[0]).IsChecked = ($pair[1] -eq $iv)
+    }
+    $n = @($cfg.items | Where-Object { $_.rotate }).Count
+    $hint = '开启后每次打开 ZCode 自动换用下面勾选的下一张壁纸'
+    if ($cfg.rotation) {
+        $hint = "已选 $n 张 · 每次打开 ZCode 自动换用下一张"
+        if ($iv -gt 0) { $hint += " · 每 $iv 分钟再换一次" }
+    }
+    (Ctrl 'RotHint').Text = $hint
+
     $libPanel.Children.Clear()
     $items = @($cfg.items)
-    $libEmpty.Visibility = if ($items.Count -eq 0) { 'Visible' } else { 'Collapsed' }
+    $emptyVis = 'Collapsed'
+    if ($items.Count -eq 0) { $emptyVis = 'Visible' }
+    $libEmpty.Visibility = $emptyVis
 
     foreach ($it in $items) {
         $src = Join-Path $libDir $it.file
         if (-not (Test-Path $src)) { continue }
+        $isVideo = $it.file -match '\.(mp4|webm)$'
 
         $card = New-Object Windows.Controls.Border
-        $card.Width = 154
+        $card.Width = 156
         $card.CornerRadius = New-Object Windows.CornerRadius 8
-        $card.Background = [Windows.Media.Brushes]::Transparent
-        $card.BorderBrush = [Windows.Media.Brushes]::Transparent
-        $card.BorderThickness = New-Object Windows.Thickness 1
+        $card.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#20242E')
         $card.Margin = New-Object Windows.Thickness 0, 0, 10, 10
 
         $panel = New-Object Windows.Controls.Grid
@@ -466,16 +530,32 @@ function Update-Library {
         $r2 = New-Object Windows.Controls.RowDefinition; $r2.Height = [Windows.GridLength]::Auto
         $panel.RowDefinitions.Add($r0); $panel.RowDefinitions.Add($r1); $panel.RowDefinitions.Add($r2)
 
-        # 缩略图
-        $img = New-Object Windows.Controls.Image
-        $img.Stretch = 'UniformToFill'
-        try { $img.Source = Get-ThumbImage $src } catch {}
-        $img.Clip = $null
-        [Windows.Controls.Grid]::SetRow($img, 0)
+        # 媒体区：视频 → MediaElement 自动播放；图片 → Image
         $clipBorder = New-Object Windows.Controls.Border
         $clipBorder.CornerRadius = New-Object Windows.CornerRadius 8, 8, 0, 0
         $clipBorder.ClipToBounds = $true
-        $clipBorder.Child = $img
+        $clipBorder.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#0B0D12')
+        if ($isVideo) {
+            $me = New-Object Windows.Controls.MediaElement
+            $me.Stretch = 'Uniform'
+            $me.IsMuted = $true
+            $me.Volume = 0
+            $me.LoadedBehavior = 'Play'
+            $me.UnloadedBehavior = 'Close'
+            $me.Source = [Uri]$src
+            $me.Add_MediaEnded({
+                $meSelf = $this
+                $meSelf.Position = [TimeSpan]::Zero
+                $meSelf.Play()
+            })
+            $clipBorder.Child = $me
+        } else {
+            $img = New-Object Windows.Controls.Image
+            $img.Stretch = 'UniformToFill'
+            try { $img.Source = Get-ImageSource $src } catch {}
+            $clipBorder.Child = $img
+        }
+        [Windows.Controls.Grid]::SetRow($clipBorder, 0)
         $panel.Children.Add($clipBorder) | Out-Null
 
         # 名称
@@ -484,53 +564,42 @@ function Update-Library {
         $name.FontSize = 10.5
         $name.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#9CA3AF')
         $name.TextTrimming = 'CharacterEllipsis'
-        $name.Margin = New-Object Windows.Thickness 2, 3, 2, 0
+        $name.Margin = New-Object Windows.Thickness 8, 4, 8, 0
         [Windows.Controls.Grid]::SetRow($name, 1)
         $panel.Children.Add($name) | Out-Null
 
-        # 操作行：轮换 / 用 / 删
-        $ops = New-Object Windows.Controls.StackPanel
-        $ops.Orientation = 'Horizontal'
-        $ops.Margin = New-Object Windows.Thickness 0, 4, 0, 2
+        # 操作行（三等分统一 mini 按钮）
+        $ops = New-Object Windows.Controls.Primitives.UniformGrid
+        $ops.Columns = 3
+        $ops.Margin = New-Object Windows.Thickness 6, 5, 6, 7
 
-        $cb = New-Object Windows.Controls.CheckBox
-        $cb.Content = '轮换'
-        $cb.IsChecked = [bool]$it.rotate
-        $cb.FontSize = 10.5
-        $cb.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#8A90A0')
-        $cb.VerticalAlignment = 'Center'
-        $cb.Add_Click({
-            $cbSelf = $this
-            $it2 = $cbSelf.Tag
+        $rotBtn = New-MiniButton '轮换' $it
+        if ($it.rotate) {
+            $rotBtn.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#3B82F6')
+            $rotBtn.Foreground = [Windows.Media.Brushes]::White
+        }
+        $rotBtn.Margin = New-Object Windows.Thickness 0, 0, 3, 0
+        $rotBtn.Add_Click({
+            $item = $this.Tag
             $cfg2 = Get-Config
-            foreach ($e2 in @($cfg2.items)) { if ($e2.file -eq $it2.file) { $e2.rotate = [bool]$cbSelf.IsChecked } }
+            foreach ($e2 in @($cfg2.items)) { if ($e2.file -eq $item.file) { $e2.rotate = (-not [bool]$e2.rotate) } }
             Save-Config $cfg2
             Rebuild-Rotate
-        }.GetNewClosure())
-        $cb.Tag = $it
-        $ops.Children.Add($cb) | Out-Null
+            Update-Library
+        })
+        $ops.Children.Add($rotBtn) | Out-Null
 
-        $useBtn = New-Object Windows.Controls.Button
-        $useBtn.Content = '应用'
-        $useBtn.FontSize = 10.5
-        $useBtn.Tag = $it
-        $useBtn.Cursor = [Windows.Input.Cursors]::Hand
-        $useBtn.Background = [Windows.Media.Brushes]::Transparent
-        $useBtn.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#60A5FA')
+        $useBtn = New-MiniButton '应用' $it
+        $useBtn.Margin = New-Object Windows.Thickness 0
         $useBtn.Add_Click({
             $item = $this.Tag
             Apply-LibraryItem $item
         })
         $ops.Children.Add($useBtn) | Out-Null
 
-        $delBtn = New-Object Windows.Controls.Button
-        $delBtn.Content = '✕'
-        $delBtn.FontSize = 10.5
-        $delBtn.Tag = $it
-        $delBtn.Cursor = [Windows.Input.Cursors]::Hand
-        $delBtn.Background = [Windows.Media.Brushes]::Transparent
-        $delBtn.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#6B7280')
-        $delBtn.Margin = New-Object Windows.Thickness 6, 0, 0, 0
+        $delBtn = New-MiniButton '删除' $it
+        $delBtn.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
+        $delBtn.Margin = New-Object Windows.Thickness 3, 0, 0, 0
         $delBtn.Add_Click({
             $item = $this.Tag
             $cfg2 = Get-Config
@@ -605,16 +674,36 @@ $swRotate.Add_Click({
     $cfg.rotation = [bool]$swRotate.IsChecked
     Save-Config $cfg
     Rebuild-Rotate
+    Update-Library
     $n = @($cfg.items | Where-Object { $_.rotate }).Count
     if ($cfg.rotation -and $n -eq 0) {
-        $statusText.Text = '自动轮换已开启，但还没有勾选任何壁纸——去「壁纸库」把想轮换的勾上。'
+        $statusText.Text = '自动更换已开启，但还没有勾选任何壁纸——去「壁纸库」把想轮换的勾上。'
         (Ctrl 'TabLib').IsSelected = $true
     } elseif ($cfg.rotation) {
-        $statusText.Text = "自动轮换已开启（$n 张）。每次打开 ZCode 自动换用下一张。"
+        $statusText.Text = "自动更换已开启（$n 张）。每次打开 ZCode 自动换用下一张。"
     } else {
-        $statusText.Text = '自动轮换已关闭，将一直使用当前壁纸。'
+        $statusText.Text = '自动更换已关闭，将一直使用当前壁纸。'
     }
 })
+
+# 间隔 pills
+foreach ($pair in @(@('Iv0', 0), @('Iv1', 1), @('Iv5', 5), @('Iv15', 15), @('Iv30', 30), @('Iv60', 60))) {
+    $rb = Ctrl $pair[0]
+    $minutes = $pair[1]
+    $rb.Add_Checked({
+        if (-not $rbIv.IsChecked) { return }
+        $cfg = Get-Config
+        $cfg.interval = [int]$rbIv.Tag
+        Save-Config $cfg
+        Rebuild-Rotate
+        $ivNow = [int]$rbIv.Tag
+        if ($ivNow -gt 0) {
+            $statusText.Text = "轮换间隔：每 $ivNow 分钟自动换一张（ZCode 运行期间也生效）"
+        } else {
+            $statusText.Text = '轮换间隔：仅在打开 ZCode 时换一张'
+        }
+    }.GetNewClosure())
+}
 
 Update-Preview
 Update-Library

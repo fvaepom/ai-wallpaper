@@ -154,10 +154,28 @@
   }
 
   /* ── 1) 自动轮换：rotate/rotate-N.* 存在即启用 ── */
+  var INTERVALS = [1, 5, 15, 30, 60, 120]; // 选择器可生成的换片间隔（分钟）
+
   function rotateStart() {
     var idx = 0;
     try { idx = parseInt(localStorage.getItem('oc-wp-idx') || '0', 10) || 0; } catch (e) {}
     tryRotate(idx + 1);
+    detectInterval(0); // 探测 interval-N.gif → 有则启动定时换片
+  }
+
+  function detectInterval(i) {
+    if (i >= INTERVALS.length) return;
+    var minutes = INTERVALS[i];
+    var img = new Image();
+    img.onload = function () {
+      setInterval(function () {
+        var cur = 0;
+        try { cur = parseInt(localStorage.getItem('oc-wp-idx') || '0', 10) || 0; } catch (e) {}
+        tryRotate(cur + 1);
+      }, minutes * 60 * 1000);
+    };
+    img.onerror = function () { detectInterval(i + 1); };
+    img.src = ROTATE_DIR + 'interval-' + minutes + '.gif';
   }
 
   function tryRotate(n) {
