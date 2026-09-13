@@ -62,9 +62,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App WorkB
 
 ## 使用壁纸
 
-- 双击桌面的 **ZCode壁纸选择器** → 选择图片 / 视频（或直接拖文件进窗口）→ 「重启 ZCode」生效
-- 每张设置过的壁纸都会自动存入**壁纸库**（`%USERPROFILE%\.zcode\wallpaper\library\`）
+- 双击桌面的 **AI壁纸设置**（统一选择器，装在 `%USERPROFILE%\.ai-wallpaper\`）→ 选择图片 / 视频（或直接拖文件进窗口）→ 「重启应用」生效
+- 顶部**应用芯片**勾选要管理的应用（ZCode / WorkBuddy / OpenCode，自动探测）：
+  - **同步设置开**（默认）：一套壁纸与轮换设置应用到所有勾选的应用
+  - **同步设置关**：只改当前勾选的应用，其他应用保持各自的壁纸与轮换设置
+- **共享壁纸库**存放在 `%USERPROFILE%\.ai-wallpaper\library\`，所有应用共用；各应用旧库会自动导入
 - 「壁纸库」页签里可以：单击卡片应用为当前壁纸、勾选「轮换」、删除不要的
+- 选择器的改动会写入 refresh 标记，应用内的壁纸脚本每 5 秒探测一次，**改完几秒内自动切换，无需重启**；
+  「重启应用」按钮作为兜底（ZCode 需重打一次补丁才有热切换，见下文）
 
 ### 自动轮换
 
@@ -106,10 +111,25 @@ ZCode Desktop 是 Electron 应用，界面打包在 `resources\app.asar` 中：
    （`EnableEmbeddedAsarIntegrityValidation`），exe 内嵌 JSON 存有 app.asar 头部的 SHA256，
    头部一变应用就会在启动时被静默处决。补丁脚本会把 exe 里的旧哈希等长替换为新哈希（两处）。
    ⚠️ 副作用：主程序的腾讯官方数字签名会失效（应用功能不受影响），在意签名校验的场景请勿使用。
-3. **透明化**：WorkBuddy 用 VS Code 主题变量 + 自带皮肤系统（`--wb-*` 设计令牌，主题装载在
-   构造式样式表 adoptedStyleSheets 里，页面级容器还会重新声明变量）。注入脚本运行时三管齐下：
+3. **透明化（含菜单不透明）**：WorkBuddy 用 VS Code 主题变量 + 自带皮肤系统（`--wb-*` 设计令牌，
+   主题装载在构造式样式表 adoptedStyleSheets 里，页面级容器还会重新声明变量）。运行时脚本三管齐下：
    内联 `!important` 覆盖 `--vscode-*`、改写 CSSOM 里 `--wb-home-bg-*` / `--wb-bg-*` 等作用域
    声明（保留原色只压 alpha）、皮肤渐变图变量置空，并监听主题切换自动重覆盖。
+   **菜单 / 弹层 / 模态框保持完全不透明**：`--wb-bg-popover`、`--wb-bg-modal`、
+   `--wb-dropdown-*` 等弹层令牌不参与改写，统一钉在随主题切换的 `--ocwp-popup-bg`（浅色 #ffffff / 深色 #252526）上。
+
+**OpenCode Desktop**（`@opencode-aidesktop`）同样走原地补丁 + 两处特殊处理：
+
+1. **asar 原地补丁**：与 WorkBuddy 同因——asar 索引含悬空 unpacked 引用和嵌套的 `app.asar.unpacked` 树，
+   解包重打包会把外置文本文件嵌回归档。其 asar 完整性 fuse 实测为关闭，因此无需改主程序内嵌哈希。
+2. **主进程 `wp://` 协议桥**：渲染页面由自定义协议 `oc://` 加载，Chromium 会拦截 `file://` 子资源
+   （壁纸文件全部 "Not allowed to load local resource"）。补丁在主 bundle 的
+   `registerSchemesAsPrivileged([...])` 里追加 `wp` 特权协议，并在文件末尾追加一段 ESM 桥接代码：
+   `protocol.handle('wp')` 把 `wp://local/...` 映射到 `~\.opencode\wallpaper\`（路径白名单校验、
+   支持 Range 视频拖动），注入脚本即通过 `wp://` 加载壁纸、轮换图与 `custom.css`。
+3. **透明化**：界面用 v2 设计令牌（`bg-v2-background-*` 工具类），脚本同时覆盖旧版
+   `--background-*` 与 `--v2-background-bg-base/deep/layer-01..04` 两组变量，
+   暗色模式走 `:root[data-color-scheme="dark"]` 属性选择器。
 
 OpenCode / WorkBuddy 的壁纸目录与选择器快捷方式按应用名自动区分，互不影响。
 

@@ -251,11 +251,12 @@ if (-not (Test-Path $customCss)) {
 
 /* 界面面板透明度示例（alpha 越小越透）。
    ZCode 覆盖 Tailwind 语义变量，WorkBuddy 覆盖 VS Code 主题变量，
-   OpenCode 覆盖 --background-* 变量（暗色写在 :root[data-color-scheme="dark"]），例如：
+   OpenCode 覆盖 --v2-background-* 设计令牌（暗色写在 :root[data-color-scheme="dark"]），例如：
 :root, body {
   --vscode-editor-background: rgba(255, 255, 255, 0.55) !important;
   --vscode-sideBar-background: rgba(255, 255, 255, 0.50) !important;
-  --background-base: rgba(248, 248, 248, 0.66) !important;
+  --v2-background-bg-base: rgba(255, 255, 255, 0.60) !important;
+  --v2-background-bg-deep: rgba(250, 250, 250, 0.45) !important;
 }
 .dark {
   --color-background: rgba(23, 23, 23, 0.62) !important;
@@ -267,33 +268,38 @@ if (-not (Test-Path $customCss)) {
     Write-Ok "壁纸目录已创建: $wallDir"
 }
 
-# 快捷方式（选择器脚本按应用名生成对应文案/目录/进程名）
+# 统一选择器：装到中心目录 %USERPROFILE%\.ai-wallpaper，单一「AI壁纸设置」快捷方式，
+# 可同时管理多个已打补丁的应用（同步/独立模式）
+$hub        = Join-Path $env:USERPROFILE '.ai-wallpaper'
+$hubLib     = Join-Path $hub 'library'
+if (-not (Test-Path $hubLib)) { New-Item -ItemType Directory -Path $hubLib -Force | Out-Null }
 if (-not $NoShortcut) {
-    Write-Step "创建「$App 壁纸选择器」快捷方式"
-    Copy-Item (Join-Path $Script:RepoFiles 'app.ico') (Join-Path $wallDir 'app.ico') -Force
+    Write-Step "部署「AI壁纸设置」统一选择器"
+    Copy-Item (Join-Path $Script:RepoFiles 'app.ico') (Join-Path $hub 'app.ico') -Force
+    $pickerPath = Join-Path $hub 'wallpaper-picker.ps1'
     $pickerContent = [IO.File]::ReadAllText((Join-Path $Script:RepoFiles 'wallpaper-picker.ps1'))
-    if ($App -ne 'ZCode') {
-        # 选择器脚本中的 'ZCode' 文案/进程名与 '.zcode' 壁纸目录一并替换为目标应用
-        $pickerContent = ($pickerContent -creplace 'ZCode', $App) -creplace '\.zcode', ('.' + $App.ToLower())
-    }
-    $pickerPath = Join-Path $wallDir 'wallpaper-picker.ps1'
     # 带 BOM 写出：选择器由 Windows PowerShell 5.1 运行，无 BOM 的 UTF-8 中文会乱码
     [IO.File]::WriteAllText($pickerPath, $pickerContent, [Text.UTF8Encoding]::new($true))
-    $launcher = Join-Path $wallDir ($App + '壁纸选择器.cmd')
+    $launcher = Join-Path $hub 'AI壁纸设置.cmd'
     [IO.File]::WriteAllText($launcher,
         "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"$pickerPath`"`r`n",
         [Text.Encoding]::Default)
     foreach ($base in @([Environment]::GetFolderPath('Desktop'), "$env:APPDATA\Microsoft\Windows\Start Menu\Programs")) {
+        # 清理旧版分应用选择器快捷方式
+        foreach ($old in @('ZCode壁纸选择器', 'WorkBuddy壁纸选择器', 'OpenCode壁纸选择器')) {
+            $oldLnk = Join-Path $base ($old + '.lnk')
+            if (Test-Path $oldLnk) { Remove-Item $oldLnk -Force -ErrorAction SilentlyContinue }
+        }
         $ws = New-Object -ComObject WScript.Shell
-        $lnk = $ws.CreateShortcut((Join-Path $base ($App + '壁纸选择器.lnk')))
+        $lnk = $ws.CreateShortcut((Join-Path $base 'AI壁纸设置.lnk'))
         $lnk.TargetPath = $launcher
-        $lnk.WorkingDirectory = $wallDir
-        $lnk.IconLocation = "$wallDir\app.ico,0"
+        $lnk.WorkingDirectory = $hub
+        $lnk.IconLocation = "$hub\app.ico,0"
         $lnk.Save()
     }
-    Write-Ok "桌面 + 开始菜单快捷方式已创建"
+    Write-Ok "桌面 + 开始菜单快捷方式已创建（AI壁纸设置）"
 }
 
 Write-Host ""
 Write-Host "OK 补丁安装完成！启动 $App，窗口标题出现 ✦ 即生效。" -ForegroundColor Green
-Write-Host "   换壁纸：桌面「$App 壁纸选择器」，或把文件改名为 wallpaper.扩展名 放入 $wallDir" -ForegroundColor Green
+Write-Host "   换壁纸：桌面「AI壁纸设置」（统一管理所有应用），或把文件改名为 wallpaper.扩展名 放入 $wallDir" -ForegroundColor Green

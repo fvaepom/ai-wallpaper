@@ -85,6 +85,22 @@
     '  --background-weak:rgba(30,30,30,.5) !important;',
     '  --background-strong:rgba(18,18,18,.55) !important;',
     '  --background-stronger:rgba(21,21,21,.92) !important;}',
+
+    /* OpenCode v2 设计令牌（主面板 bg-v2-background-* 用的就是这一族） */
+    ':root,:host{',
+    '  --v2-background-bg-base:rgba(255,255,255,.6) !important;',
+    '  --v2-background-bg-deep:rgba(250,250,250,.45) !important;',
+    '  --v2-background-bg-layer-01:rgba(255,255,255,.22) !important;',
+    '  --v2-background-bg-layer-02:rgba(255,255,255,.32) !important;',
+    '  --v2-background-bg-layer-03:rgba(255,255,255,.42) !important;',
+    '  --v2-background-bg-layer-04:rgba(255,255,255,.52) !important;}',
+    ':root[data-color-scheme="dark"]{',
+    '  --v2-background-bg-base:rgba(22,22,22,.62) !important;',
+    '  --v2-background-bg-deep:rgba(8,8,8,.55) !important;',
+    '  --v2-background-bg-layer-01:rgba(255,255,255,.05) !important;',
+    '  --v2-background-bg-layer-02:rgba(255,255,255,.08) !important;',
+    '  --v2-background-bg-layer-03:rgba(255,255,255,.11) !important;',
+    '  --v2-background-bg-layer-04:rgba(255,255,255,.15) !important;}',
     'html,body{background:transparent !important;}'
   ].join('\n');
   document.head.appendChild(style);
@@ -109,7 +125,8 @@
     try {
       var customLink = document.createElement('link');
       customLink.rel = 'stylesheet';
-      customLink.href = WALLPAPER_DIR + 'custom.css';
+      // 加时间戳穿透缓存：编辑 custom.css 后普通刷新即可生效
+      customLink.href = WALLPAPER_DIR + 'custom.css?z=' + Date.now();
       document.head.appendChild(customLink);
     } catch (e) {}
   }
@@ -214,11 +231,39 @@
   }
 
   /* ── 启动：先检测轮换是否开启 ── */
+  function fullProbe() {
+    if (ROTATE_DIR) {
+      var rotUrls = [];
+      for (var r = 0; r < exts.length; r++) rotUrls.push(ROTATE_DIR + 'rotate-1.' + exts[r]);
+      probeList(rotUrls, rotateStart, function () { probeStatic(0); });
+    } else {
+      probeStatic(0);
+    }
+  }
+  fullProbe();
+
+  /* ── 热切换：选择器改动设置后会写入 refresh-N.gif 标记（N 递增防重名），
+     每 5 秒探测一次全部 5 个标记位，位图变化即重新探测壁纸，免重启生效 ── */
   if (ROTATE_DIR) {
-    var rotUrls = [];
-    for (var r = 0; r < exts.length; r++) rotUrls.push(ROTATE_DIR + 'rotate-1.' + exts[r]);
-    probeList(rotUrls, rotateStart, function () { probeStatic(0); });
-  } else {
-    probeStatic(0);
+    var lastMarker = -1;
+    setInterval(function () {
+      var found = 0, pending = 5;
+      function settle() {
+        if (--pending > 0) return;
+        if (lastMarker !== -1 && found !== lastMarker) {
+          try { localStorage.removeItem('oc-wp-idx'); } catch (e) {}
+          fullProbe();
+        }
+        if (found !== 0) lastMarker = found;
+      }
+      for (var n = 1; n <= 5; n++) {
+        (function (idx) {
+          var img = new Image();
+          img.onload = function () { found |= (1 << idx); settle(); };
+          img.onerror = function () { settle(); };
+          img.src = ROTATE_DIR + 'refresh-' + idx + '.gif?t=' + Date.now();
+        })(n);
+      }
+    }, 5000);
   }
 })();
