@@ -1,15 +1,20 @@
-/* ai-wallpaper — 壁纸层 + 界面透明化注入脚本
+/* ai-wallpaper — 壁纸层 + 界面透明化注入脚本（DeepSeek Harness 桌面端专用变体）
  *
- * 由 apply-patch.ps1 注入到应用主窗口 index.html。
- * 同时适配 ZCode（--color-* 变量 / .dark 类）与 OpenCode 桌面端
- * （--background-* 变量 / data-color-scheme 属性），未使用的变量集自动失效。
+ * 由 apply-patch.ps1 以【内联】方式注入到 DSH Desktop（开源 DeepSeek Harness 桌面壳，
+ * github.com/anywhere-labs/dsh-desktop）的前端页：
+ *   <安装目录>\resources\app\node_modules\@deepseek-ai\dsh-web-frontend\dist\index.html
+ * 主窗口由 Electron 壳 loadURL 到本机回环 webserver（动态端口），页面源 = 上述 dist；
+ * 壁纸媒体 / custom.css / 轮换标记由本机回环 HTTP 媒体服务（127.0.0.1:19399）供给，
+ * __WALLPAPER_DIR__ 指向 http://127.0.0.1:19399/dsh（媒体服务的 dsh 虚拟根）。
+ * ⚠ 外壳对「跨源 + 带查询串」的请求一律拦截（同源带串、跨源无串均正常，实测）——
+ * 因此本变体不用 ?v= 缓存穿透（与 Marvis 同款限制）：轮换集（不同 URL）热切换正常，
+ * 选择器对同名 wallpaper.* 的就地覆盖需重启应用后可见。
  * 壁纸查找顺序：
- *   1. 自动轮换（检测到 %USERPROFILE%\.zcode\wallpaper\rotate\rotate-1.* 时启用）：
+ *   1. 自动轮换（检测到 <壁纸目录>\rotate\rotate-1.* 时启用）：
  *      每次页面加载按 localStorage 计数器换下一张 rotate-N.*
- *   2. %USERPROFILE%\.zcode\wallpaper\wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
- *   3. 本文件同目录下的 wallpaper.*
- *   4. 都没有 → 内置"动态极光渐变"兜底
- * （__WALLPAPER_DIR__ 占位符由 apply-patch.ps1 替换为实际用户目录）
+ *   2. <壁纸目录>\wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
+ *   3. 都没有 → 内置"动态极光渐变"兜底
+ * （__WALLPAPER_DIR__ 占位符由 apply-patch.ps1 替换）
  */
 ;(function () {
   if (document.getElementById('oc-wallpaper')) return;
@@ -53,58 +58,22 @@
     '  100%{transform:translate(-4vw,-4vh) scale(.9);}}',
     '@media (prefers-reduced-motion: reduce){#oc-wallpaper.aurora::before,#oc-wallpaper.aurora::after{animation:none;}}',
 
-    /* 让界面透出壁纸：alpha 越小越透。弹层保持较高不透明度保证可读 */
-    ':root,:host{',
-    '  --color-background:rgba(250,250,250,var(--ocwp-ui-alpha,.66)) !important;',
-    '  --color-background-alt:rgba(245,245,245,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --color-background-win-alt:rgba(229,229,229,var(--ocwp-ui-alpha,.72)) !important;',
-    '  --color-header:rgba(245,245,245,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --color-panel:rgba(245,245,245,var(--ocwp-ui-alpha,.58)) !important;',
-    '  --color-sidebar:rgba(245,245,245,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --color-card:rgba(255,255,255,var(--ocwp-ui-alpha,.78)) !important;',
-    '  --color-card-selected:rgba(229,229,229,var(--ocwp-ui-alpha,.85)) !important;',
-    '  --color-popover:rgba(255,255,255,.94) !important;',
-    '  --color-input:rgba(255,255,255,var(--ocwp-ui-alpha,.7)) !important;}',
-    '.dark{',
-    '  --color-background:rgba(23,23,23,var(--ocwp-ui-alpha,.62)) !important;',
-    '  --color-background-alt:rgba(38,38,38,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --color-background-win-alt:rgba(38,38,38,var(--ocwp-ui-alpha,.7)) !important;',
-    '  --color-header:rgba(23,23,23,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --color-panel:rgba(23,23,23,var(--ocwp-ui-alpha,.58)) !important;',
-    '  --color-sidebar:rgba(10,10,10,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --color-card:rgba(38,38,38,var(--ocwp-ui-alpha,.78)) !important;',
-    '  --color-card-selected:rgba(64,64,64,var(--ocwp-ui-alpha,.85)) !important;',
-    '  --color-popover:rgba(38,38,38,.92) !important;',
-    '  --color-input:rgba(38,38,38,var(--ocwp-ui-alpha,.7)) !important;}',
-
-    /* OpenCode 桌面端变量（弹层 --background-stronger 保持高不透明度保证可读） */
-    ':root,:host{',
-    '  --background-base:rgba(248,248,248,var(--ocwp-ui-alpha,.66)) !important;',
-    '  --background-weak:rgba(243,243,243,var(--ocwp-ui-alpha,.52)) !important;',
-    '  --background-strong:rgba(252,252,252,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --background-stronger:rgba(252,252,252,.92) !important;}',
-    ':root[data-color-scheme="dark"]{',
-    '  --background-base:rgba(16,16,16,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --background-weak:rgba(30,30,30,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --background-strong:rgba(18,18,18,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --background-stronger:rgba(21,21,21,.92) !important;}',
-
-    /* OpenCode v2 设计令牌（主面板 bg-v2-background-* 用的就是这一族） */
-    ':root,:host{',
-    '  --v2-background-bg-base:rgba(255,255,255,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --v2-background-bg-deep:rgba(250,250,250,var(--ocwp-ui-alpha,.45)) !important;',
-    '  --v2-background-bg-layer-01:rgba(255,255,255,var(--ocwp-ui-alpha,.22)) !important;',
-    '  --v2-background-bg-layer-02:rgba(255,255,255,var(--ocwp-ui-alpha,.32)) !important;',
-    '  --v2-background-bg-layer-03:rgba(255,255,255,var(--ocwp-ui-alpha,.42)) !important;',
-    '  --v2-background-bg-layer-04:rgba(255,255,255,var(--ocwp-ui-alpha,.52)) !important;}',
-    ':root[data-color-scheme="dark"]{',
-    '  --v2-background-bg-base:rgba(22,22,22,var(--ocwp-ui-alpha,.62)) !important;',
-    '  --v2-background-bg-deep:rgba(8,8,8,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --v2-background-bg-layer-01:rgba(255,255,255,var(--ocwp-ui-alpha,.05)) !important;',
-    '  --v2-background-bg-layer-02:rgba(255,255,255,var(--ocwp-ui-alpha,.08)) !important;',
-    '  --v2-background-bg-layer-03:rgba(255,255,255,var(--ocwp-ui-alpha,.11)) !important;',
-    '  --v2-background-bg-layer-04:rgba(255,255,255,var(--ocwp-ui-alpha,.15)) !important;}',
-    'html,body{background:transparent !important;}'
+    /* DeepSeek Harness（开源 DSH Desktop，Electron 壳 + Vite/React 前端，
+       主题令牌为 --dsw-alias-*，定义在 body（浅色）与 body[data-ds-dark-theme]（深色））：
+       基底令牌透明让壁纸透出；主面板令牌 layer-1 改为按主题半透明磨砂
+       （浅色 ≈ bluish-00 #fff、深色 ≈ bluish-875 #232324 的 alpha 版）——
+       全透明会把深色文字直接叠在壁纸上导致不可读，磨砂层同时保住对比度与透出度，
+       可在 custom.css 里调 --ocwp-ui-alpha（0~1，越小越透）。boot 启动屏引用
+       --dsw-alias-bg-base 自动跟着透明；卡片/弹层 layer-2/3 保持原色保证可读性；
+       个别写死颜色的大色块由下方运行时扫描兜底 */
+    'html,body{background:transparent !important;}',
+    '#root,#app,#wrapper{background:transparent !important;}',
+    'body{',
+    '  --dsw-alias-bg-base:transparent !important;',
+    '  --dsw-alias-bg-layer-1:rgba(250,250,252,var(--ocwp-ui-alpha,.72)) !important;}',
+    'body[data-ds-dark-theme]{',
+    '  --dsw-alias-bg-base:transparent !important;',
+    '  --dsw-alias-bg-layer-1:rgba(30,30,32,var(--ocwp-ui-alpha,.66)) !important;}'
   ].join('\n');
   document.head.appendChild(style);
 
@@ -114,12 +83,47 @@
   layer.className = 'aurora'; // 先显示兜底渐变，找到壁纸文件后替换
   (document.body || document.documentElement).appendChild(layer);
 
-  // 皮肤生效标记：窗口标题出现 ✦ 即说明本脚本已运行
+  // 皮肤生效标记：窗口标题出现 ✦ 即说明本脚本已运行（DSH 外壳可能固定标题，
+  // 被覆盖时以壁纸可见为准）
   try { document.title += ' ✦'; } catch (e) {}
 
-  /* ── 用户自定义微调：wallpaper 目录下的 custom.css ─ */
+  /* ── 大面积不透明色块自动降透明（React 界面存在写死静态色的表面，
+     CSS 猜测不可靠 → 运行时扫描：盖住几乎整个视口、或全高侧栏的大块纯色背景，
+     统一压到 alpha 0.45。React 异步挂载 + 路由切换，延迟多跑几遍。
+     卡片/弹窗等小块不动，保证可读性；个别想不透明的场景在 custom.css 里
+     对具体元素加回背景即可 ── */
+  function deopaque() {
+    try {
+      if (!document.body) return;
+      var vw = innerWidth, vh = innerHeight;
+      var all = document.body.getElementsByTagName('*');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.id === 'oc-wallpaper') continue;
+        var r = el.getBoundingClientRect();
+        if (r.width < 10 || r.height < 10) continue;
+        var full = (r.width >= vw * 0.95 && r.height >= vh * 0.95);
+        var tall = (r.height >= vh * 0.85 && r.width >= 120 && r.width <= vw * 0.6);
+        if (!full && !tall) continue;
+        var bg = getComputedStyle(el).backgroundColor;
+        var m = bg && bg.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/);
+        if (!m) continue;
+        var a = (m[4] === undefined) ? 1 : parseFloat(m[4]);
+        if (a >= 0.85) {
+          el.style.setProperty('background-color',
+            'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',0.45)', 'important');
+        }
+      }
+    } catch (e) {}
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { deopaque(); });
+  } else { deopaque(); }
+  setTimeout(deopaque, 2500);
+  setTimeout(deopaque, 6000);
+
+  /* ── 用户自定义微调：wallpaper 目录下的 custom.css（热加载） ── */
   var WALLPAPER_DIR = '__WALLPAPER_DIR__/'; // 占位符，由 apply-patch.ps1 替换
-  var HERE = './';
   var hasUserDir = WALLPAPER_DIR.indexOf('__') === -1;
   var ROTATE_DIR = hasUserDir ? WALLPAPER_DIR + 'rotate/' : null;
   var exts = ['mp4', 'webm', 'gif', 'webp', 'png', 'jpg'];
@@ -129,8 +133,7 @@
       var customLink = document.createElement('link');
       customLink.rel = 'stylesheet';
       customLink.id = 'ocwp-custom';
-      // 加时间戳穿透缓存：编辑 custom.css 后普通刷新即可生效
-      customLink.href = WALLPAPER_DIR + 'custom.css?z=' + Date.now();
+      customLink.href = WALLPAPER_DIR + 'custom.css';
       document.head.appendChild(customLink);
     } catch (e) {}
   }
@@ -143,7 +146,7 @@
       var l = document.createElement('link');
       l.rel = 'stylesheet';
       l.id = 'ocwp-custom';
-      l.href = WALLPAPER_DIR + 'custom.css?t=' + Date.now();
+      l.href = WALLPAPER_DIR + 'custom.css';
       document.head.appendChild(l);
     } catch (e) {}
   }
@@ -160,7 +163,16 @@
     el.style.opacity = (el.tagName === 'VIDEO' ? CONFIG.videoOpacity : CONFIG.imageOpacity);
     layer.appendChild(el);
     addShade();
-    if (el.tagName === 'VIDEO') { el.play().catch(function () {}); }
+    if (el.tagName === 'VIDEO') {
+      /* 跳过开头黑场：壁纸视频常有数秒暗场/标题卡开头，自动播放被外壳的 autoplay
+         策略拦下时，暂停画面停留其上 = 整窗近黑；seek 到第 2 秒让静态帧有内容，
+         播放由下方首次交互手势解锁（DSH 的 webPreferences 限 user-gesture-required） */
+      try {
+        var d = el.duration;
+        if (isFinite(d) && d > 4) el.currentTime = 2;
+      } catch (e) {}
+      el.play().catch(function () {});
+    }
   }
 
   /* 探测一个媒体 URL：成功回调 el，失败回调 fail */
@@ -227,12 +239,12 @@
       }, minutes * 60 * 1000);
     };
     img.onerror = function () { detectInterval(i + 1, bust); };
-    img.src = ROTATE_DIR + 'interval-' + minutes + '.gif' + (bust ? '?v=' + bust : '');
+    img.src = ROTATE_DIR + 'interval-' + minutes + '.gif';
   }
 
   function tryRotate(n, bust) {
     var urls = [];
-    for (var i = 0; i < exts.length; i++) urls.push(ROTATE_DIR + 'rotate-' + n + '.' + exts[i] + (bust ? '?v=' + bust : ''));
+    for (var i = 0; i < exts.length; i++) urls.push(ROTATE_DIR + 'rotate-' + n + '.' + exts[i]);
     probeList(urls, function (el) {
       try { localStorage.setItem('oc-wp-idx', String(n)); } catch (e) {}
       applyMedia(el);
@@ -243,11 +255,10 @@
   }
 
   /* ── 2) 静态壁纸：wallpaper.<ext> ── */
-  var staticDirs = hasUserDir ? [WALLPAPER_DIR, HERE] : [HERE];
   function probeStatic(dirIdx, bust) {
-    if (dirIdx >= staticDirs.length) return; // 极光兜底
+    if (dirIdx >= 1 || !hasUserDir) return; // 极光兜底
     var urls = [];
-    for (var i = 0; i < exts.length; i++) urls.push(staticDirs[dirIdx] + 'wallpaper.' + exts[i] + (bust ? '?v=' + bust : ''));
+    for (var i = 0; i < exts.length; i++) urls.push(WALLPAPER_DIR + 'wallpaper.' + exts[i]);
     probeList(urls, applyMedia, function () { probeStatic(dirIdx + 1, bust); });
   }
 
@@ -255,7 +266,7 @@
   function fullProbe(bust) {
     if (ROTATE_DIR) {
       var rotUrls = [];
-      for (var r = 0; r < exts.length; r++) rotUrls.push(ROTATE_DIR + 'rotate-1.' + exts[r] + (bust ? '?v=' + bust : ''));
+      for (var r = 0; r < exts.length; r++) rotUrls.push(ROTATE_DIR + 'rotate-1.' + exts[r]);
       probeList(rotUrls, function () { rotateStart(bust); }, function () { probeStatic(0, bust); });
     } else {
       probeStatic(0, bust);
@@ -287,7 +298,7 @@
         var img = new Image();
         img.onload = function () { found |= (1 << idx); settle(); };
         img.onerror = function () { settle(); };
-        img.src = ROTATE_DIR + 'refresh-' + idx + '.gif?t=' + Date.now();
+        img.src = ROTATE_DIR + 'refresh-' + idx + '.gif';
       })(n);
     }
   }
@@ -298,11 +309,26 @@
     if (v && v.paused) { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
   }
 
+  /* 自动播放解锁：DSH 外壳的 autoplay 策略要求用户手势，脚本直接 play() 会被拒。
+     页面里任何一次真实交互（点击/按键/滚轮）都会建立激活态，监听一次性触发后
+     由 resumeMedia 恢复播放；轮询里的 resumeMedia 在激活态建立后也会持续兜底 */
+  (function () {
+    var unlock = function () {
+      resumeMedia();
+      document.removeEventListener('pointerdown', unlock, true);
+      document.removeEventListener('keydown', unlock, true);
+      document.removeEventListener('wheel', unlock, true);
+    };
+    document.addEventListener('pointerdown', unlock, true);
+    document.addEventListener('keydown', unlock, true);
+    document.addEventListener('wheel', unlock, true);
+  })();
+
   /* 后台零解码：隐藏即暂停视频（切走后不再烧 GPU/CPU），前台恢复播放。
      恢复可见时补测一次标记——后台期间选择器做过的改动几秒内可见；
-     只有标记真的变化才 fullProbe 重载视频，切回窗口不再有"销毁重建 47MB
-     视频"造成的瞬间卡顿。（绕过选择器手动替换壁纸文件需重启应用才会被
-     发现——换取的是每次切回窗口零卡顿，README 有说明） */
+     只有标记真的变化才 fullProbe 重载视频，切回窗口不再有"销毁重建大视频"
+     造成的瞬间卡顿。（绕过选择器手动替换壁纸文件需重启应用才会被发现——
+     换取的是每次切回窗口零卡顿，README 有说明） */
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
       try { reloadCustomCss(); } catch (e) {}

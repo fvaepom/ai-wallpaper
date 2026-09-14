@@ -1,4 +1,4 @@
-﻿# 生成 zcode-wallpaper 应用图标：蓝紫渐变圆角底 + 白色山形 + 太阳
+﻿# 生成 ai-wallpaper 应用图标：蓝紫渐变圆角底 + 白色山形 + 太阳
 Add-Type -AssemblyName System.Drawing
 
 $outDir = 'H:\zcode改造\zcode-wallpaper\files'

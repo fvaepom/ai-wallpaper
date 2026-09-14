@@ -3,9 +3,8 @@
 app.asar*
 *.zwp-backup
 
-# 非本项目文件（勿提交）
-patch-inplace.js
-oc-wallpaper-vscode.js
+# 本机构建产物
+release/
 
 # 本机调试产物
 .mimosa/

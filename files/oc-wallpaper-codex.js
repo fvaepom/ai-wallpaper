@@ -1,15 +1,14 @@
-/* ai-wallpaper — 壁纸层 + 界面透明化注入脚本
+/* ai-wallpaper — Codex 桌面版（OpenAI.Codex MSIX）壁纸层 + 界面透明化注入脚本
  *
- * 由 apply-patch.ps1 注入到应用主窗口 index.html。
- * 同时适配 ZCode（--color-* 变量 / .dark 类）与 OpenCode 桌面端
- * （--background-* 变量 / data-color-scheme 属性），未使用的变量集自动失效。
+ * 由 apply-patch.ps1 注入到 asar 的 webview\index.html（app://-/index.html 本地壳页面）。
+ * Codex UI 的设计令牌是 --color-surface-* / --color-background-* 两族，
+ * 主题切换用 html 上的 .electron-light / .electron-dark 类，这里按同样的选择器覆盖。
  * 壁纸查找顺序：
- *   1. 自动轮换（检测到 %USERPROFILE%\.zcode\wallpaper\rotate\rotate-1.* 时启用）：
- *      每次页面加载按 localStorage 计数器换下一张 rotate-N.*
- *   2. %USERPROFILE%\.zcode\wallpaper\wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
+ *   1. 自动轮换（检测到 rotate\rotate-1.* 时启用）：每次页面加载按 localStorage 计数器换下一张
+ *   2. wp://local/wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg（主进程桥 → ~\.codex\wallpaper\）
  *   3. 本文件同目录下的 wallpaper.*
  *   4. 都没有 → 内置"动态极光渐变"兜底
- * （__WALLPAPER_DIR__ 占位符由 apply-patch.ps1 替换为实际用户目录）
+ * （__WALLPAPER_DIR__ 占位符由 apply-patch.ps1 替换为 wp://local）
  */
 ;(function () {
   if (document.getElementById('oc-wallpaper')) return;
@@ -53,58 +52,45 @@
     '  100%{transform:translate(-4vw,-4vh) scale(.9);}}',
     '@media (prefers-reduced-motion: reduce){#oc-wallpaper.aurora::before,#oc-wallpaper.aurora::after{animation:none;}}',
 
-    /* 让界面透出壁纸：alpha 越小越透。弹层保持较高不透明度保证可读 */
-    ':root,:host{',
-    '  --color-background:rgba(250,250,250,var(--ocwp-ui-alpha,.66)) !important;',
-    '  --color-background-alt:rgba(245,245,245,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --color-background-win-alt:rgba(229,229,229,var(--ocwp-ui-alpha,.72)) !important;',
-    '  --color-header:rgba(245,245,245,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --color-panel:rgba(245,245,245,var(--ocwp-ui-alpha,.58)) !important;',
-    '  --color-sidebar:rgba(245,245,245,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --color-card:rgba(255,255,255,var(--ocwp-ui-alpha,.78)) !important;',
-    '  --color-card-selected:rgba(229,229,229,var(--ocwp-ui-alpha,.85)) !important;',
-    '  --color-popover:rgba(255,255,255,.94) !important;',
-    '  --color-input:rgba(255,255,255,var(--ocwp-ui-alpha,.7)) !important;}',
-    '.dark{',
-    '  --color-background:rgba(23,23,23,var(--ocwp-ui-alpha,.62)) !important;',
-    '  --color-background-alt:rgba(38,38,38,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --color-background-win-alt:rgba(38,38,38,var(--ocwp-ui-alpha,.7)) !important;',
-    '  --color-header:rgba(23,23,23,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --color-panel:rgba(23,23,23,var(--ocwp-ui-alpha,.58)) !important;',
-    '  --color-sidebar:rgba(10,10,10,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --color-card:rgba(38,38,38,var(--ocwp-ui-alpha,.78)) !important;',
-    '  --color-card-selected:rgba(64,64,64,var(--ocwp-ui-alpha,.85)) !important;',
-    '  --color-popover:rgba(38,38,38,.92) !important;',
-    '  --color-input:rgba(38,38,38,var(--ocwp-ui-alpha,.7)) !important;}',
+    /* Codex 桌面端：--color-background/surface 两族令牌 + .electron-light/.electron-dark 主题类。
+       alpha 越小越透。菜单/浮层（application-menu、elevated）保持较高不透明度保证可读 */
+    ':root,:host,.electron-light{',
+    '  --color-background-surface:rgba(255,255,255,var(--ocwp-ui-alpha,.62)) !important;',
+    '  --color-background-surface-under:rgba(250,250,250,var(--ocwp-ui-alpha,.5)) !important;',
+    '  --color-surface:rgba(255,255,255,var(--ocwp-ui-alpha,.62)) !important;',
+    '  --color-surface-secondary:rgba(245,245,245,var(--ocwp-ui-alpha,.55)) !important;',
+    '  --color-surface-tertiary:rgba(250,250,250,var(--ocwp-ui-alpha,.78)) !important;',
+    '  --main-surface-secondary:rgba(245,245,245,var(--ocwp-ui-alpha,.5)) !important;',
+    '  --app-shell-panel-background:rgba(250,250,250,var(--ocwp-ui-alpha,.55)) !important;',
+    '  --color-background-application-menu:rgba(250,250,250,.94) !important;',
+    '  --color-background-composer-primary:rgba(255,255,255,.75) !important;',
+    '  --color-background-composer-action-bar:rgba(255,255,255,.8) !important;',
+    '  --color-token-bg-primary:rgba(255,255,255,var(--ocwp-ui-alpha,.6)) !important;',
+    '  --color-token-bg-secondary:rgba(245,245,245,var(--ocwp-ui-alpha,.55)) !important;',
+    '  --color-token-side-bar-background:rgba(250,250,250,var(--ocwp-ui-alpha,.55)) !important;',
+    '  --color-token-main-surface-primary:rgba(255,255,255,var(--ocwp-ui-alpha,.62)) !important;}',
+    '.electron-dark{',
+    '  --color-background-surface:rgba(23,23,23,var(--ocwp-ui-alpha,.6)) !important;',
+    '  --color-background-surface-under:rgba(16,16,16,var(--ocwp-ui-alpha,.52)) !important;',
+    '  --color-surface:rgba(23,23,23,var(--ocwp-ui-alpha,.6)) !important;',
+    '  --color-surface-secondary:rgba(32,32,32,var(--ocwp-ui-alpha,.55)) !important;',
+    '  --color-surface-tertiary:rgba(28,28,28,var(--ocwp-ui-alpha,.78)) !important;',
+    '  --main-surface-secondary:rgba(32,32,32,var(--ocwp-ui-alpha,.5)) !important;',
+    '  --app-shell-panel-background:rgba(28,28,28,var(--ocwp-ui-alpha,.55)) !important;',
+    '  --color-background-application-menu:rgba(38,38,38,.94) !important;',
+    '  --color-background-composer-primary:rgba(30,30,30,.75) !important;',
+    '  --color-background-composer-action-bar:rgba(30,30,30,.8) !important;',
+    '  --color-token-bg-primary:rgba(23,23,23,var(--ocwp-ui-alpha,.6)) !important;',
+    '  --color-token-bg-secondary:rgba(32,32,32,var(--ocwp-ui-alpha,.55)) !important;',
+    '  --color-token-side-bar-background:rgba(28,28,28,var(--ocwp-ui-alpha,.55)) !important;',
+    '  --color-token-main-surface-primary:rgba(23,23,23,var(--ocwp-ui-alpha,.62)) !important;}',
+    /* browser 型窗口的兜底作用域（无主题类时令牌也定义在这里） */
+    '[data-codex-window-type=browser]:not(.electron-light):not(.electron-dark){',
+    '  --color-background-surface:rgba(255,255,255,var(--ocwp-ui-alpha,.62)) !important;',
+    '  --color-background-application-menu:rgba(250,250,250,.94) !important;}',
 
-    /* OpenCode 桌面端变量（弹层 --background-stronger 保持高不透明度保证可读） */
-    ':root,:host{',
-    '  --background-base:rgba(248,248,248,var(--ocwp-ui-alpha,.66)) !important;',
-    '  --background-weak:rgba(243,243,243,var(--ocwp-ui-alpha,.52)) !important;',
-    '  --background-strong:rgba(252,252,252,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --background-stronger:rgba(252,252,252,.92) !important;}',
-    ':root[data-color-scheme="dark"]{',
-    '  --background-base:rgba(16,16,16,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --background-weak:rgba(30,30,30,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --background-strong:rgba(18,18,18,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --background-stronger:rgba(21,21,21,.92) !important;}',
-
-    /* OpenCode v2 设计令牌（主面板 bg-v2-background-* 用的就是这一族） */
-    ':root,:host{',
-    '  --v2-background-bg-base:rgba(255,255,255,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --v2-background-bg-deep:rgba(250,250,250,var(--ocwp-ui-alpha,.45)) !important;',
-    '  --v2-background-bg-layer-01:rgba(255,255,255,var(--ocwp-ui-alpha,.22)) !important;',
-    '  --v2-background-bg-layer-02:rgba(255,255,255,var(--ocwp-ui-alpha,.32)) !important;',
-    '  --v2-background-bg-layer-03:rgba(255,255,255,var(--ocwp-ui-alpha,.42)) !important;',
-    '  --v2-background-bg-layer-04:rgba(255,255,255,var(--ocwp-ui-alpha,.52)) !important;}',
-    ':root[data-color-scheme="dark"]{',
-    '  --v2-background-bg-base:rgba(22,22,22,var(--ocwp-ui-alpha,.62)) !important;',
-    '  --v2-background-bg-deep:rgba(8,8,8,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --v2-background-bg-layer-01:rgba(255,255,255,var(--ocwp-ui-alpha,.05)) !important;',
-    '  --v2-background-bg-layer-02:rgba(255,255,255,var(--ocwp-ui-alpha,.08)) !important;',
-    '  --v2-background-bg-layer-03:rgba(255,255,255,var(--ocwp-ui-alpha,.11)) !important;',
-    '  --v2-background-bg-layer-04:rgba(255,255,255,var(--ocwp-ui-alpha,.15)) !important;}',
-    'html,body{background:transparent !important;}'
+    'html,body{background:transparent !important;}',
+    '#root{background:transparent !important;}'
   ].join('\n');
   document.head.appendChild(style);
 
@@ -263,10 +249,9 @@
   }
   fullProbe(null);
 
-  /* ── 热切换：选择器改动设置后会写入 refresh-N.gif 标记（编号按 1..3 循环，
-     兼容只探测 1..3 的旧版已部署脚本），每 5 秒探测一次全部 5 个标记位，
+  /* ── 热切换：选择器改动设置后会写入 refresh-N.gif 标记，每 5 秒探测一次，
      位图变化即带缓存穿透重探壁纸，免重启生效。
-     页面隐藏时跳过探测（此时探测纯耗磁盘读，发现也得等可见才能换），恢复可见立即补测 ── */
+     页面隐藏时跳过探测，恢复可见立即补测一次 ── */
   var lastMarker = -1;
   function probeMarkers() {
     if (!ROTATE_DIR || document.hidden) return;
@@ -298,11 +283,7 @@
     if (v && v.paused) { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
   }
 
-  /* 后台零解码：隐藏即暂停视频（切走后不再烧 GPU/CPU），前台恢复播放。
-     恢复可见时补测一次标记——后台期间选择器做过的改动几秒内可见；
-     只有标记真的变化才 fullProbe 重载视频，切回窗口不再有"销毁重建 47MB
-     视频"造成的瞬间卡顿。（绕过选择器手动替换壁纸文件需重启应用才会被
-     发现——换取的是每次切回窗口零卡顿，README 有说明） */
+  /* 后台零解码：隐藏即暂停视频（切走后不再烧 GPU/CPU），前台恢复播放 */
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {
       try { reloadCustomCss(); } catch (e) {}

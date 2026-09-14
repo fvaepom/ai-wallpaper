@@ -1,15 +1,18 @@
-/* ai-wallpaper — 壁纸层 + 界面透明化注入脚本
+/* ai-wallpaper — 壁纸层 + 界面透明化注入脚本（Marvis 专用变体）
  *
- * 由 apply-patch.ps1 注入到应用主窗口 index.html。
- * 同时适配 ZCode（--color-* 变量 / .dark 类）与 OpenCode 桌面端
- * （--background-* 变量 / data-color-scheme 属性），未使用的变量集自动失效。
+ * 由 apply-patch.ps1 注入到腾讯 Marvis 主窗口页面（marvis-offline-page\index.html）。
+ * Marvis 为 Qt5 + CEF 壳：页面由本地离线包经 CEF 拦截器以
+ * https://yyb-ai-launcher-offline.qq.com/ 提供，本脚本与 zwp-media 目录并排部署在该目录下，
+ * __WALLPAPER_DIR__ 指向 https://yyb-ai-launcher-offline.qq.com/zwp-media ——
+ * 同一拦截器、同源 https 加载的媒体 / custom.css / 轮换标记目录
+ * （该路径经 NTFS junction 映射到 %USERPROFILE%\.marvis\wallpaper）。
  * 壁纸查找顺序：
- *   1. 自动轮换（检测到 %USERPROFILE%\.zcode\wallpaper\rotate\rotate-1.* 时启用）：
+ *   1. 自动轮换（检测到 <壁纸目录>\rotate\rotate-1.* 时启用）：
  *      每次页面加载按 localStorage 计数器换下一张 rotate-N.*
- *   2. %USERPROFILE%\.zcode\wallpaper\wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
+ *   2. <壁纸目录>\wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
  *   3. 本文件同目录下的 wallpaper.*
  *   4. 都没有 → 内置"动态极光渐变"兜底
- * （__WALLPAPER_DIR__ 占位符由 apply-patch.ps1 替换为实际用户目录）
+ * （__WALLPAPER_DIR__ 占位符由 apply-patch.ps1 替换）
  */
 ;(function () {
   if (document.getElementById('oc-wallpaper')) return;
@@ -53,58 +56,34 @@
     '  100%{transform:translate(-4vw,-4vh) scale(.9);}}',
     '@media (prefers-reduced-motion: reduce){#oc-wallpaper.aurora::before,#oc-wallpaper.aurora::after{animation:none;}}',
 
-    /* 让界面透出壁纸：alpha 越小越透。弹层保持较高不透明度保证可读 */
+    /* Marvis（腾讯，Qt5+CEF，界面为 CSS-in-JS 哈希类名）：v1 基础透明化。
+       根透明 + 官方 CSS 变量 --default-bg-color（缺省 #f7f7f7）半透明 +
+       已知白面板按 [class*=模块名] 软化（CSS-module 哈希前缀跨版本基本稳定）。
+       面板级精细透明化可用 custom.css 覆盖补充 */
     ':root,:host{',
-    '  --color-background:rgba(250,250,250,var(--ocwp-ui-alpha,.66)) !important;',
-    '  --color-background-alt:rgba(245,245,245,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --color-background-win-alt:rgba(229,229,229,var(--ocwp-ui-alpha,.72)) !important;',
-    '  --color-header:rgba(245,245,245,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --color-panel:rgba(245,245,245,var(--ocwp-ui-alpha,.58)) !important;',
-    '  --color-sidebar:rgba(245,245,245,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --color-card:rgba(255,255,255,var(--ocwp-ui-alpha,.78)) !important;',
-    '  --color-card-selected:rgba(229,229,229,var(--ocwp-ui-alpha,.85)) !important;',
-    '  --color-popover:rgba(255,255,255,.94) !important;',
-    '  --color-input:rgba(255,255,255,var(--ocwp-ui-alpha,.7)) !important;}',
-    '.dark{',
-    '  --color-background:rgba(23,23,23,var(--ocwp-ui-alpha,.62)) !important;',
-    '  --color-background-alt:rgba(38,38,38,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --color-background-win-alt:rgba(38,38,38,var(--ocwp-ui-alpha,.7)) !important;',
-    '  --color-header:rgba(23,23,23,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --color-panel:rgba(23,23,23,var(--ocwp-ui-alpha,.58)) !important;',
-    '  --color-sidebar:rgba(10,10,10,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --color-card:rgba(38,38,38,var(--ocwp-ui-alpha,.78)) !important;',
-    '  --color-card-selected:rgba(64,64,64,var(--ocwp-ui-alpha,.85)) !important;',
-    '  --color-popover:rgba(38,38,38,.92) !important;',
-    '  --color-input:rgba(38,38,38,var(--ocwp-ui-alpha,.7)) !important;}',
-
-    /* OpenCode 桌面端变量（弹层 --background-stronger 保持高不透明度保证可读） */
+    '  --default-bg-color:rgba(247,247,247,var(--ocwp-ui-alpha,.55)) !important;}',
+    'html,body{background:transparent !important;}',
+    '#root,#app,#wrapper{background:transparent !important;}',
+    '[class*="_inputBar_"]{background:rgba(255,255,255,.72) !important;}',
+    '[class*="_question_"]{background:rgba(251,251,251,.6) !important;}',
+    '[class*="_question_"]:hover{background:rgba(255,255,255,.78) !important;}',
+    '[class*="_dropdown_"]{background:rgba(255,255,255,.94) !important;}',
+    /* Marvis（腾讯，Qt5+CEF，界面为 CSS-in-JS 哈希类名）：v1 透明化。
+       根透明 + 官方 CSS 变量 --default-bg-color（缺省 #f7f7f7）半透明 +
+       已知面板按 [class*=模块名] 软化（CSS-module 哈希前缀跨版本基本稳定）。
+       body 再垫一层壁纸图做兜底（视频壁纸时该 URL 加载失败自动透明，由视频层接管）；
+       面板级精细透明化可用 custom.css 覆盖补充 */
     ':root,:host{',
-    '  --background-base:rgba(248,248,248,var(--ocwp-ui-alpha,.66)) !important;',
-    '  --background-weak:rgba(243,243,243,var(--ocwp-ui-alpha,.52)) !important;',
-    '  --background-strong:rgba(252,252,252,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --background-stronger:rgba(252,252,252,.92) !important;}',
-    ':root[data-color-scheme="dark"]{',
-    '  --background-base:rgba(16,16,16,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --background-weak:rgba(30,30,30,var(--ocwp-ui-alpha,.5)) !important;',
-    '  --background-strong:rgba(18,18,18,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --background-stronger:rgba(21,21,21,.92) !important;}',
-
-    /* OpenCode v2 设计令牌（主面板 bg-v2-background-* 用的就是这一族） */
-    ':root,:host{',
-    '  --v2-background-bg-base:rgba(255,255,255,var(--ocwp-ui-alpha,.6)) !important;',
-    '  --v2-background-bg-deep:rgba(250,250,250,var(--ocwp-ui-alpha,.45)) !important;',
-    '  --v2-background-bg-layer-01:rgba(255,255,255,var(--ocwp-ui-alpha,.22)) !important;',
-    '  --v2-background-bg-layer-02:rgba(255,255,255,var(--ocwp-ui-alpha,.32)) !important;',
-    '  --v2-background-bg-layer-03:rgba(255,255,255,var(--ocwp-ui-alpha,.42)) !important;',
-    '  --v2-background-bg-layer-04:rgba(255,255,255,var(--ocwp-ui-alpha,.52)) !important;}',
-    ':root[data-color-scheme="dark"]{',
-    '  --v2-background-bg-base:rgba(22,22,22,var(--ocwp-ui-alpha,.62)) !important;',
-    '  --v2-background-bg-deep:rgba(8,8,8,var(--ocwp-ui-alpha,.55)) !important;',
-    '  --v2-background-bg-layer-01:rgba(255,255,255,var(--ocwp-ui-alpha,.05)) !important;',
-    '  --v2-background-bg-layer-02:rgba(255,255,255,var(--ocwp-ui-alpha,.08)) !important;',
-    '  --v2-background-bg-layer-03:rgba(255,255,255,var(--ocwp-ui-alpha,.11)) !important;',
-    '  --v2-background-bg-layer-04:rgba(255,255,255,var(--ocwp-ui-alpha,.15)) !important;}',
-    'html,body{background:transparent !important;}'
+    '  --default-bg-color:rgba(247,247,247,var(--ocwp-ui-alpha,.55)) !important;}',
+    'html,body{background:transparent !important;}',
+    'body{background:url("__WALLPAPER_DIR__/wallpaper.jpg") center/cover no-repeat fixed !important;}',
+    '#root,#app,#wrapper{background:transparent !important;}',
+    '[class*="_sidebar_"],[class*="_nav_"],[class*="_layout_"],[class*="_shell_"]{background:transparent !important;}',
+    '[class*="_inputBar_"]{background:rgba(255,255,255,.72) !important;}',
+    '[class*="_question_"]{background:rgba(251,251,251,.6) !important;}',
+    '[class*="_question_"]:hover{background:rgba(255,255,255,.78) !important;}',
+    '[class*="_dropdown_"]{background:rgba(255,255,255,.94) !important;}',
+    '[class*="_questionText_"],[class*="_textarea_"]{color:#111 !important;}'
   ].join('\n');
   document.head.appendChild(style);
 
@@ -117,7 +96,43 @@
   // 皮肤生效标记：窗口标题出现 ✦ 即说明本脚本已运行
   try { document.title += ' ✦'; } catch (e) {}
 
-  /* ── 用户自定义微调：wallpaper 目录下的 custom.css ─ */
+  /* ── 大面积不透明色块自动降透明（Marvis 界面为 CSS-in-JS，类名随版本变哈希，
+     CSS 猜测不可靠 → 运行时扫描：盖住几乎整个视口、或全高侧栏的大块纯色背景，
+     统一压到 alpha 0.45。React 异步挂载，延迟多跑几遍。卡片/弹窗等小块不动，
+     保证可读性；个别想不透明的场景在 custom.css 里对具体元素加回背景即可 ── */
+  function deopaque() {
+    try {
+      if (!document.body) return;
+      var vw = innerWidth, vh = innerHeight;
+      var all = document.body.getElementsByTagName('*');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.id === 'oc-wallpaper') continue;
+        var r = el.getBoundingClientRect();
+        if (r.width < 10 || r.height < 10) continue;
+        var full = (r.width >= vw * 0.95 && r.height >= vh * 0.95);
+        var tall = (r.height >= vh * 0.85 && r.width >= 120 && r.width <= vw * 0.6);
+        if (!full && !tall) continue;
+        var bg = getComputedStyle(el).backgroundColor;
+        var m = bg && bg.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/);
+        if (!m) continue;
+        var a = (m[4] === undefined) ? 1 : parseFloat(m[4]);
+        if (a >= 0.85) {
+          el.style.setProperty('background-color',
+            'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',0.45)', 'important');
+        }
+      }
+    } catch (e) {}
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { deopaque(); });
+  } else { deopaque(); }
+  setTimeout(deopaque, 2500);
+  setTimeout(deopaque, 6000);
+
+  /* ── 用户自定义微调：wallpaper 目录下的 custom.css。
+     注意：离线页拦截器对带查询串的 URL 行为未知 → 一律不带缓存穿透参数；
+     编辑 custom.css 后需重启 Marvis 或切一次窗口（visibilitychange 会重载） ── */
   var WALLPAPER_DIR = '__WALLPAPER_DIR__/'; // 占位符，由 apply-patch.ps1 替换
   var HERE = './';
   var hasUserDir = WALLPAPER_DIR.indexOf('__') === -1;
@@ -129,8 +144,7 @@
       var customLink = document.createElement('link');
       customLink.rel = 'stylesheet';
       customLink.id = 'ocwp-custom';
-      // 加时间戳穿透缓存：编辑 custom.css 后普通刷新即可生效
-      customLink.href = WALLPAPER_DIR + 'custom.css?z=' + Date.now();
+      customLink.href = WALLPAPER_DIR + 'custom.css';
       document.head.appendChild(customLink);
     } catch (e) {}
   }
@@ -143,7 +157,7 @@
       var l = document.createElement('link');
       l.rel = 'stylesheet';
       l.id = 'ocwp-custom';
-      l.href = WALLPAPER_DIR + 'custom.css?t=' + Date.now();
+      l.href = WALLPAPER_DIR + 'custom.css';
       document.head.appendChild(l);
     } catch (e) {}
   }
@@ -227,12 +241,12 @@
       }, minutes * 60 * 1000);
     };
     img.onerror = function () { detectInterval(i + 1, bust); };
-    img.src = ROTATE_DIR + 'interval-' + minutes + '.gif' + (bust ? '?v=' + bust : '');
+    img.src = ROTATE_DIR + 'interval-' + minutes + '.gif';
   }
 
   function tryRotate(n, bust) {
     var urls = [];
-    for (var i = 0; i < exts.length; i++) urls.push(ROTATE_DIR + 'rotate-' + n + '.' + exts[i] + (bust ? '?v=' + bust : ''));
+    for (var i = 0; i < exts.length; i++) urls.push(ROTATE_DIR + 'rotate-' + n + '.' + exts[i]);
     probeList(urls, function (el) {
       try { localStorage.setItem('oc-wp-idx', String(n)); } catch (e) {}
       applyMedia(el);
@@ -247,7 +261,7 @@
   function probeStatic(dirIdx, bust) {
     if (dirIdx >= staticDirs.length) return; // 极光兜底
     var urls = [];
-    for (var i = 0; i < exts.length; i++) urls.push(staticDirs[dirIdx] + 'wallpaper.' + exts[i] + (bust ? '?v=' + bust : ''));
+    for (var i = 0; i < exts.length; i++) urls.push(staticDirs[dirIdx] + 'wallpaper.' + exts[i]);
     probeList(urls, applyMedia, function () { probeStatic(dirIdx + 1, bust); });
   }
 
@@ -255,7 +269,7 @@
   function fullProbe(bust) {
     if (ROTATE_DIR) {
       var rotUrls = [];
-      for (var r = 0; r < exts.length; r++) rotUrls.push(ROTATE_DIR + 'rotate-1.' + exts[r] + (bust ? '?v=' + bust : ''));
+      for (var r = 0; r < exts.length; r++) rotUrls.push(ROTATE_DIR + 'rotate-1.' + exts[r]);
       probeList(rotUrls, function () { rotateStart(bust); }, function () { probeStatic(0, bust); });
     } else {
       probeStatic(0, bust);
@@ -287,7 +301,7 @@
         var img = new Image();
         img.onload = function () { found |= (1 << idx); settle(); };
         img.onerror = function () { settle(); };
-        img.src = ROTATE_DIR + 'refresh-' + idx + '.gif?t=' + Date.now();
+        img.src = ROTATE_DIR + 'refresh-' + idx + '.gif';
       })(n);
     }
   }
