@@ -24,8 +24,11 @@ try {
     $stageFiles = Join-Path $stage 'files'
     New-Item -ItemType Directory -Path $stageFiles | Out-Null
     Get-ChildItem (Join-Path $repo 'files') -File | Where-Object {
-        $_.Name -notlike '*.cs' -and            # exe 源码
-        $_.Name -notlike 'wp-scheme-*.txt' -and # 协议探测残留
+        $_.Name -notlike '*.cs' -and                  # exe 源码
+        $_.Name -notlike '*-codex.txt' -and           # 开发机专用（patch-codex-loose 的探测残留）
+        $_.Name -ne 'patch-codex-loose.ps1' -and      # 开发机一次性脚本（硬编码 MSIX 版本号）
+        $_.Name -ne 'fix-bridge-guard.js' -and        # 开发机一次性脚本（硬编码本机 asar 路径）
+        # ⚠ wp-scheme-find.txt / wp-scheme-replace.txt 不是残留：OpenCode/Trae 系运行时读取（协议桥载荷）
         $_.Name -ne 'wallpaper-picker.cmd'
     } | Copy-Item -Destination $stageFiles -Force
 

@@ -2,16 +2,18 @@
 #
 # Codex desktop (OpenAI.Codex MSIX -> loose copy at CodexPatched) renders its UI on an
 # app:// page. Serving wallpapers via wp:// protocol bridge is blocked by the newer
-# Chromium media URL safety check, so this agent uses the proven Doubao approach:
+# Chromium media URL safety check (http://127.0.0.1 media is refused too), so this
+# agent injects over CDP and serves wallpaper bytes via app://fs/@fs/<path>:
 #   1. Starts CodexPatched\app\ChatGPT.exe with a loopback-only DevTools port
-#   2. Runs a loopback media server for the wallpaper file (Range supported)
-#   3. Injects wallpaper layer + transparency CSS over CDP into app:// pages
-#   4. Watches the wallpaper folder - changes apply live (no restart)
-#   5. Exits automatically when Codex exits
+#   2. Injects wallpaper layer + transparency CSS over CDP into app:// pages
+#      (image wallpaper only; no loopback media server needed)
+#   3. Watches the wallpaper folder - changes apply live (no restart)
+#   4. Exits automatically when Codex exits
 #
 # Wallpaper folder: %USERPROFILE%\.codex\wallpaper\
-# NOTE: file is ASCII-only on purpose (PS 5.1 no-BOM safe). Chinese strings are
-#       stored base64-encoded and decoded at runtime.
+# NOTE: file contains Chinese comments; keep the UTF-8 BOM (PS 5.1 would read it as
+#       GBK otherwise). User-visible Chinese strings are base64-encoded and decoded
+#       at runtime.
 
 param([int]$Port = 0)
 $ErrorActionPreference = 'Stop'
@@ -20,7 +22,6 @@ $Hub           = Join-Path $env:USERPROFILE '.ai-wallpaper'
 $WallDir       = Join-Path $env:USERPROFILE '.codex\wallpaper'
 $LogFile       = Join-Path $WallDir 'agent.log'
 $ExeCandidates = @(
-    'C:\Users\FVAEP\CodexPatched\app\ChatGPT.exe',
     'C:\Users\FVAEP\CodexPatched\app\ChatGPT.exe')
 $AllowedPorts  = @(19330, 19331, 19332, 19333, 19334)
 # Codex 的媒体加载器有 URL 安全检查（http://127.0.0.1 与 wp:// 均被拒，实测 2026-09-15），
@@ -29,7 +30,7 @@ $Exts          = @('gif', 'webp', 'png', 'jpg', 'jpeg')
 $Cfg           = @{ videoOpacity = 0.9; imageOpacity = 0.9; darkOverlay = 0.18 }
 
 $ZHTitle  = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('6LGG5YyF5aOB57q4'))
-$ZHBody   = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('5qOA5rWL5Yiw6LGG5YyF5q2j5Zyo6L+Q6KGM77yM5L2G5pya5Yqg6L295aOB57q444CCDuW9seW9seW9seW9seW9sQ=='))
+$ZHBody   = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('5qOA5rWL5YiwIENvZGV477yIQ2hhdEdQVCDmoYzpnaLnq6/vvInmraPlnKjov5DooYzvvIzljbPlsIblhbPpl63lubbph43lkK/ku6XliqDovb3lo4HnurjjgII='))
 $ZHLogW   = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('5b2T5YmN5aOB57q4OiA='))
 $ZHLogNo  = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('5pyq5om+5Yiw5aOB57q45paH5Lu277yM5pi+56S65YWc5bqV5p6B5YWJ5riQ5Y+Y'))
 $ZHWatch  = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('5q2j5Zyo55uR6KeG5aOB57q455uu5b2VOiA='))
@@ -242,80 +243,6 @@ function Get-CdpTargets([int]$p) {
     if ($AllowedPorts -notcontains $p) { return $null }
     try { return Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/json/list" -f $p) -TimeoutSec 3 } catch { return $null }
 }
-
-# ---------- loopback media server ----------
-$MediaServerScript = @'
-$mimes = @{ mp4 = 'video/mp4'; webm = 'video/webm'; gif = 'image/gif'; webp = 'image/webp'; png = 'image/png'; jpg = 'image/jpeg'; jpeg = 'image/jpeg' }
-$listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 0)
-$listener.Start()
-$state.Port = ([int]$listener.LocalEndpoint.Port)
-while ($true) {
-    $client = $null
-    try {
-        $client = $listener.AcceptTcpClient()
-        $client.NoDelay = $true
-        $st = $client.GetStream()
-        $st.ReadTimeout = 8000
-        $buf = New-Object byte[] 8192
-        $sb = New-Object System.Text.StringBuilder
-        while ($true) {
-            $n = $st.Read($buf, 0, $buf.Length)
-            if ($n -le 0) { break }
-            [void]$sb.Append([System.Text.Encoding]::ASCII.GetString($buf, 0, $n))
-            if ($sb.ToString().IndexOf("`r`n`r`n") -ge 0 -or $sb.Length -gt 16384) { break }
-        }
-        $req = $sb.ToString()
-        if (-not $req) { continue }
-        $headOnly = (($req -split "`r`n")[0] -match '^HEAD')
-        $rStart = [int64]0; $rEnd = [int64]-1
-        if ($req -match '(?mi)^Range:\s*bytes=(\d*)-(\d*)\s*\r?$') {
-            if ($matches[1] -ne '') { $rStart = [int64]$matches[1] }
-            if ($matches[2] -ne '') { $rEnd = [int64]$matches[2] }
-        }
-        $path = [string]$state.File
-        if (-not $path -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            $hb = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 404 Not Found`r`nContent-Length: 9`r`nConnection: close`r`n`r`nnot found")
-            $st.Write($hb, 0, $hb.Length)
-            continue
-        }
-        $fi = Get-Item -LiteralPath $path
-        $ext = $fi.Extension.TrimStart('.').ToLower()
-        $mime = 'application/octet-stream'
-        if ($mimes.ContainsKey($ext)) { $mime = $mimes[$ext] }
-        $len = $fi.Length
-        $end = $len - 1
-        if ($rEnd -ge 0 -and $rEnd -lt $end) { $end = $rEnd }
-        $partial = ($rStart -gt 0 -or ($rEnd -ge 0 -and $rEnd -lt ($len - 1)))
-        $status = '200 OK'; if ($partial) { $status = '206 Partial Content' }
-        $cl = $end - $rStart + 1
-        $hs = "HTTP/1.1 $status`r`nContent-Type: $mime`r`nContent-Length: $cl`r`nAccept-Ranges: bytes`r`nAccess-Control-Allow-Origin: *`r`nCache-Control: no-store`r`nConnection: close`r`n"
-        if ($partial) { $hs += "Content-Range: bytes $rStart-$end/$len`r`n" }
-        $hs += "`r`n"
-        $hb = [System.Text.Encoding]::ASCII.GetBytes($hs)
-        $st.Write($hb, 0, $hb.Length)
-        if (-not $headOnly) {
-            $fs = New-Object System.IO.FileStream($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-            try {
-                $null = $fs.Seek($rStart, [System.IO.SeekOrigin]::Begin)
-                $chunk = New-Object byte[] (1024 * 1024)
-                $pos = $rStart
-                while ($pos -le $end) {
-                    $want = [int][Math]::Min($chunk.Length, $end - $pos + 1)
-                    $read = 0
-                    while ($read -lt $want) {
-                        $r = $fs.Read($chunk, $read, $want - $read)
-                        if ($r -le 0) { break }
-                        $read += $r
-                    }
-                    if ($read -le 0) { break }
-                    $st.Write($chunk, 0, $read)
-                    $pos += $read
-                }
-            } finally { $fs.Close() }
-        }
-    } catch {} finally { if ($client) { try { $client.Close() } catch {} } }
-}
-'@
 
 function Send-Wallpaper([string]$wsUrl, $wp, [string]$customCss) {
     # setBypassCSP 会触发页面自动重载：必须先开旁路等重载完成，再注入（否则注入结果被重载清掉）

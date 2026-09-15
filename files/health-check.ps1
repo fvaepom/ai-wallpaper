@@ -6,7 +6,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File health-check.ps1 -Silent   # 失效直接关闭应用重打并重启
 #
 # 设计：本脚本只做只读探测（不跑 apply-patch），补丁完好时零改动零 UAC；
-# 只有确认失效才调用 repair\apply-patch.ps1 -Force（Codex 的 MSIX 写入此刻才会提权）。
+# 只有确认失效才调用 repair\apply-patch.ps1 -Force（AutoClaw 需结束管理员进程时才会提权）。
 # 注意：应用档案字段与 apply-patch.ps1 的 $Apps 表保持同步。
 
 param([switch]$Silent, [switch]$Report)
@@ -21,7 +21,9 @@ $Apps = @(
     @{ App = 'ZCode';      Kind = 'asar';  Process = 'ZCode';        Candidates = @('F:\Program files\ZCode', 'C:\Program files\ZCode', "$env:LOCALAPPDATA\Programs\zcode", "$env:LOCALAPPDATA\Programs\ZCode") },
     @{ App = 'OpenCode';   Kind = 'asar';  Process = 'OpenCode';     Candidates = @("$env:LOCALAPPDATA\Programs\@opencode-aidesktop", 'F:\Program files\OpenCode', 'C:\Program files\OpenCode', "$env:LOCALAPPDATA\Programs\OpenCode") },
     @{ App = 'WorkBuddy';  Kind = 'asar';  Process = 'WorkBuddy';    Candidates = @('F:\Program files\WorkBuddy', 'C:\Program files\WorkBuddy', "$env:LOCALAPPDATA\Programs\WorkBuddy") },
-    @{ App = 'Codex';      Kind = 'asar';  Process = 'ChatGPT';      MsixId = 'OpenAI.Codex'; ShellApp = 'shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App' },
+    # Codex（2026-09-15 起）：散装副本 + CDP 代理（与豆包同架构）。补丁 = hub 里的启动器文件；
+    # InstallDir 用于「未安装」判定（散装目录不存在且进程不在 → 视为未安装，避免无谓报 broken）
+    @{ App = 'Codex';      Kind = 'agent'; Process = 'ChatGPT';      AgentFiles = @('codex-launcher.ps1', 'codex-launcher.vbs'); InstallDir = "$env:USERPROFILE\CodexPatched" },
     @{ App = 'TraeCN';     Kind = 'files'; Process = 'Trae CN';      Html = 'app\out\vs\code\electron-browser\workbench\workbench.html'; Candidates = @('F:\AIcodeprogram\Trae CN', "$env:LOCALAPPDATA\Programs\Trae CN") },
     @{ App = 'TraeWorkCN'; Kind = 'files'; Process = 'TRAE SOLO CN'; Html = 'app\out\vs\code\electron-browser\solo\solo-lite.html';      Candidates = @('F:\AIcodeprogram\TRAE SOLO CN', "$env:LOCALAPPDATA\Programs\TRAE SOLO CN") },
     @{ App = 'AutoClaw';   Kind = 'asar';  Process = 'AutoClaw';     Candidates = @('F:\AIcodeprogram\AUTOCLAW', 'C:\Program files\AutoClaw', "$env:LOCALAPPDATA\Programs\AutoClaw") },
@@ -78,6 +80,11 @@ function Resolve-Asar($a) {
 function Test-AppHealth($a) {
     try {
         if ($a.Kind -eq 'agent') {
+            # 安装判定（仅 Codex 这类带 InstallDir 的目标）：散装目录与进程都不在 → 未安装，跳过
+            if ($a.InstallDir) {
+                $installed = (Test-Path $a.InstallDir) -or [bool](Get-Process -Name $a.Process -ErrorAction SilentlyContinue)
+                if (-not $installed) { return 'missing' }
+            }
             foreach ($f in $a.AgentFiles) { if (-not (Test-Path (Join-Path $Hub $f))) { return 'broken' } }
             return 'ok'
         }

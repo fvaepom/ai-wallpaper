@@ -201,12 +201,18 @@
   }
 
   function detectInterval(i, bust) {
-    if (i >= INTERVALS.length) return;
+    if (i >= INTERVALS.length) {
+      // 探测穷尽 = 轮换已关闭/间隔被清：必须清掉旧定时器，否则它按旧间隔永远存活
+      // （关轮换后旧 tick 反复全失败重探：视频壁纸每 N 分钟闪断一次；关间隔则轮换关不掉）
+      if (intervalTimer) { clearInterval(intervalTimer); intervalTimer = null; }
+      return;
+    }
     var minutes = INTERVALS[i];
     var img = new Image();
     img.onload = function () {
       if (intervalTimer) clearInterval(intervalTimer); // 热切换重探后不留旧定时器
       intervalTimer = setInterval(function () {
+        if (document.hidden) return; // 后台零解码：隐藏期不换片，恢复可见后的下一个 tick 自然续上
         var cur = 0;
         try { cur = parseInt(localStorage.getItem('oc-wp-idx') || '0', 10) || 0; } catch (e) {}
         tryRotate(cur + 1, bust);

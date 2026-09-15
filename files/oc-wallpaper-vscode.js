@@ -240,6 +240,9 @@
 
   /* 收集应用自定义皮肤背景图变量（--wb-custom-img-*，多为内置渐变，置空让壁纸透出） */
   var MANAGED_WB_RE = /^--(wb-home-bg|wb-bg|wb-main-area-background|wb-custom-img)/;
+  /* CSSOM 扫描时动态收集到的 --wb-custom-img-*：assertThemeVars 会把它们在根元素
+     内联钉为 none（覆盖皮肤系统写在内联样式里的引用，CSSOM 改写管不到那里） */
+  var customImgVars = {};
   /* 弹层/菜单/交互态令牌保持不透明：不改写（菜单不要透明） */
   var WB_SKIP_RE = /^--(wb-bg-(popover|modal|hover|active|overlay|dropdown|menu|input|button|tooltip)|wb-dropdown|wb-border|wb-menu)/;
   var WB_BG_ALPHA = '0.5'; // 改写后的不透明度（0~1，越小越透）
@@ -272,6 +275,7 @@
       if (!MANAGED_WB_RE.test(prop) || WB_SKIP_RE.test(prop)) continue;
       var val = s.getPropertyValue(prop);
       if (prop.indexOf('--wb-custom-img') === 0) {
+        customImgVars[prop] = 'none'; // 记录给 assertThemeVars 做内联钉死
         s.setProperty(prop, 'none', 'important');
         continue;
       }
@@ -587,12 +591,18 @@
   }
 
   function detectInterval(i, bust) {
-    if (i >= INTERVALS.length) return;
+    if (i >= INTERVALS.length) {
+      // 探测穷尽 = 轮换已关闭/间隔被清：必须清掉旧定时器，否则它按旧间隔永远存活
+      // （关轮换后旧 tick 反复全失败重探：视频壁纸每 N 分钟闪断一次；关间隔则轮换关不掉）
+      if (intervalTimer) { clearInterval(intervalTimer); intervalTimer = null; }
+      return;
+    }
     var minutes = INTERVALS[i];
     var img = new Image();
     img.onload = function () {
       if (intervalTimer) clearInterval(intervalTimer); // 热切换重探后不留旧定时器
       intervalTimer = setInterval(function () {
+        if (document.hidden) return; // 后台零解码：隐藏期不换片，恢复可见后的下一个 tick 自然续上
         var cur = 0;
         try { cur = parseInt(localStorage.getItem('oc-wp-idx') || '0', 10) || 0; } catch (e) {}
         tryRotate(cur + 1, bust);

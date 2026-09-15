@@ -485,15 +485,23 @@ function Touch-LiveMarker([string]$appName) {
     #   - 新版脚本探测 1..5 位图，单个标记在 1..3 内移动同样每次都能识别。
     $rot = Join-Path $AppMap[$appName].Dir 'rotate'
     if (-not (Test-Path $rot)) { New-Item -ItemType Directory -Path $rot -Force | Out-Null }
-    Get-ChildItem $rot -Filter 'refresh-*' -ErrorAction SilentlyContinue | Remove-Item -Force
+    # 记下现存标记编号（计数文件丢失时从它续接，避免归零后新标记撞上旧编号 → 应用端漏检切换）
+    $prevNum = 0
+    Get-ChildItem $rot -Filter 'refresh-*' -ErrorAction SilentlyContinue | ForEach-Object {
+        $m = [regex]::Match($_.Name, '^refresh-(\d+)\.gif$')
+        if ($m.Success) { $prevNum = [int]$m.Groups[1].Value }
+        Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+    }
     # 计数文件放在应用壁纸目录（rotate 目录会被 Rebuild-Rotate 整体清理，放那里计数会回绕撞号）
     $counterPath = Join-Path $AppMap[$appName].Dir '.marker-counter'
     $c = 0
-    try { if (Test-Path $counterPath) { $c = [int](Get-Content $counterPath -Raw) } } catch {}
+    try { if (Test-Path $counterPath) { $c = [int](Get-Content $counterPath -Raw) } } catch { $c = 0 }
+    if ($c -le 0 -and $prevNum -ge 1) { $c = $prevNum }
     $c++
-    Set-Content -Path $counterPath -Value $c -Encoding ASCII
+    try { Set-Content -Path $counterPath -Value $c -Encoding ASCII } catch {}
     $gif = [Convert]::FromBase64String('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
-    [IO.File]::WriteAllBytes((Join-Path $rot ("refresh-" + (($c % 3) + 1) + ".gif")), $gif)
+    try { [IO.File]::WriteAllBytes((Join-Path $rot ("refresh-" + (($c % 3) + 1) + ".gif")), $gif) }
+    catch { $script:WpError = '写热切换标记失败：' + $_.Exception.Message }
 }
 
 function Rebuild-Rotate([string]$appName, $cfg) {
@@ -516,13 +524,14 @@ function Rebuild-Rotate([string]$appName, $cfg) {
         foreach ($it in (@($cfg.items) | Where-Object { $_.rotate } | Sort-Object added)) {
             $src = Resolve-LibFile $appName $it.file
             if ($src) {
-                Copy-Item $src (Join-Path $rot ("rotate-$n" + [IO.Path]::GetExtension($it.file))) -Force
-                $n++
+                try { Copy-Item $src (Join-Path $rot ("rotate-$n" + [IO.Path]::GetExtension($it.file))) -Force -ErrorAction Stop; $n++ }
+                catch { $script:WpError = "重建 $appName 轮换集失败（$($it.file)）：" + $_.Exception.Message }
             }
         }
         if ($cfg.interval -gt 0) {
             $gif = [Convert]::FromBase64String('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
-            [IO.File]::WriteAllBytes((Join-Path $rot "interval-$($cfg.interval).gif"), $gif)
+            try { [IO.File]::WriteAllBytes((Join-Path $rot "interval-$($cfg.interval).gif"), $gif) }
+            catch { $script:WpError = '写轮换间隔标记失败：' + $_.Exception.Message }
         }
     }
     Touch-LiveMarker $appName
@@ -1225,6 +1234,24 @@ function Get-ImageSource([string]$path) {
     return $bi
 }
 
+# 网格卡片专用：DecodePixelWidth 降采样解码（4K 图全量解码约 33MB/张，80 张缓存 ≈ 2.6GB；
+# 卡片显示区只有 84~150px 高，480px 足够清晰）。主预览仍用 Get-ImageSource 全分辨率。
+function Get-GridImageSource([string]$path) {
+    $fi = Get-Item $path
+    $key = 'g|' + $fi.FullName + '|' + $fi.Length + '|' + $fi.LastWriteTimeUtc.Ticks
+    if ($script:ImgCache.ContainsKey($key)) { return $script:ImgCache[$key] }
+    $bi = New-Object Windows.Media.Imaging.BitmapImage
+    $bi.BeginInit()
+    $bi.CacheOption = 'OnLoad'
+    $bi.DecodePixelWidth = 480
+    $bi.UriSource = [Uri]$fi.FullName
+    $bi.EndInit()
+    if ($bi.CanFreeze) { $bi.Freeze() }
+    if ($script:ImgCache.Count -gt 80) { $script:ImgCache.Clear() }
+    $script:ImgCache[$key] = $bi
+    return $bi
+}
+
 function Get-ThumbSource([string]$path) {
     $fi = Get-Item $path
     $key = 't|' + $fi.FullName + '|' + $fi.Length + '|' + $fi.LastWriteTimeUtc.Ticks
@@ -1334,6 +1361,11 @@ function Get-WtSettings {
 
 function Save-WtSettings($root) {
     if (-not $wtSettingsPath) { return }
+    # 首次写回前留原版备份：JSONC 写回会剥掉用户手写注释、重排键序，出了问题可整体还原
+    $bak = "$wtSettingsPath.zwp-backup"
+    if (-not (Test-Path $bak)) {
+        try { Copy-Item $wtSettingsPath $bak -Force -ErrorAction Stop } catch {}
+    }
     # 保留原文件的 BOM 状态；PS 5.1 ConvertTo-Json 的输出是合法 JSON，WT 热加载无压力
     $hasBom = $false
     try {
@@ -1439,9 +1471,14 @@ function Set-TerminalWallpaper([string]$appName, [string]$src) {
     }
     $dst = Join-Path $dir ('wallpaper' + $ext)
     if ($final -ne $dst) {
+        # 旧文件被占用到删/改名都失败时，绝不能复制覆写现存路径——写穿硬链接会污染中心库文件本身
+        if (Test-Path $dst) {
+            if ($final -ne $src) { Remove-Item $final -Force -ErrorAction SilentlyContinue }
+            return "旧壁纸被占用且无法腾出路径，未更换（关闭相关终端标签后重试）"
+        }
         $linked = $false
         try { New-Item -ItemType HardLink -Path $dst -Target $final -ErrorAction Stop | Out-Null; $linked = $true } catch {}
-        if (-not $linked) { Copy-Item $final $dst -Force }
+        if (-not $linked) { Copy-Item $final $dst }
     }
     if ($final -ne $src) { Remove-Item $final -Force -ErrorAction SilentlyContinue }
     return (Set-WtBackground $appName $dst (Get-UiAlpha $appName))
@@ -1464,12 +1501,15 @@ function Set-AppStaticWallpaper([string]$appName, [string]$src) {
         }
     }
     $dst = Join-Path $dir ('wallpaper' + [IO.Path]::GetExtension($src))
-    # 硬链接到中心库文件：零重复磁盘空间；跨卷/系统不支持时回退为复制
-    $linked = $false
-    if (-not (Test-Path $dst)) {
-        try { New-Item -ItemType HardLink -Path $dst -Target $src -ErrorAction Stop | Out-Null; $linked = $true } catch {}
+    # 硬链接到中心库文件：零重复磁盘空间；跨卷/系统不支持时回退为复制。
+    # 旧文件被占用到删/改名都失败时，绝不能复制覆写现存路径——写穿硬链接会污染中心库文件本身
+    if (Test-Path $dst) {
+        $script:WpError = "旧壁纸被占用且无法腾出路径，未更换（关闭 $appName 后重试）"
+        return
     }
-    if (-not $linked) { Copy-Item $src $dst -Force }
+    $linked = $false
+    try { New-Item -ItemType HardLink -Path $dst -Target $src -ErrorAction Stop | Out-Null; $linked = $true } catch {}
+    if (-not $linked) { Copy-Item $src $dst }
     # 应用端探测到 rotate-1.* 就会忽略静态壁纸：单应用设置壁纸时清掉该应用的轮换集，保证立即生效
     Get-ChildItem -Path (Join-Path $dir 'rotate') -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notlike 'refresh-*' } | Remove-Item -Force
@@ -1495,37 +1535,27 @@ function Add-LibEntry([string]$libName, [string]$type, [string]$appName) {
 }
 
 # 视频归一化：压到 ≤1080p/30fps H.264，体积与解码负载同步大降（新导入即时受益）。
-# ffmpeg 位于 ~\.ai-wallpaper\bin\（不在则原样返回，导入照常只是不压缩）
-function Convert-ToNormVideo([string]$path) {
+# ffmpeg 位于 ~\.ai-wallpaper\bin\；编码放后台进程 + DispatcherTimer 轮询回收——
+# 此前在 UI 线程同步跑 ffmpeg，4K 长视频导入时窗口「未响应」假死数分钟，状态文字也渲染不出来。
+$script:NormJob = $null
+function Start-VideoNormalize([string]$libPath, [string]$appName, [string]$type) {
     $ff = Join-Path $hub 'bin\ffmpeg.exe'
-    if (-not (Test-Path $ff)) { return $path }
-    $tmp = Join-Path $hubLib ([IO.Path]::GetFileNameWithoutExtension($path) + '.norm.mp4')
-    & $ff -hide_banner -loglevel error -y -i $path -vf "scale='min(1920,iw)':-2,fps=30" -c:v libx264 -crf 25 -preset veryfast -pix_fmt yuv420p -movflags +faststart -an $tmp 2>$null
-    if ((Test-Path $tmp) -and (Get-Item $tmp).Length -gt 0 -and ((Get-Item $tmp).Length -lt (Get-Item $path).Length)) {
-        if ($path -ne $tmp) { Remove-Item $path -Force -ErrorAction SilentlyContinue }
-        return $tmp
-    }
-    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-    return $path
-}
-
-function Import-Wallpaper([string]$file, [string]$appName) {
-    if (-not (Test-Path $file)) { return }
-    $ext = [IO.Path]::GetExtension($file).ToLower()
-    if ($ext -eq '.jpeg') { $ext = '.jpg' }
-    if ($ext -notin @('.mp4', '.webm', '.gif', '.webp', '.png', '.jpg')) {
-        $statusText.Text = '不支持的文件类型：' + $ext
+    if (-not (Test-Path $ff) -or $script:NormJob -ne $null) {
+        # 无 ffmpeg（照常导入、不压缩）或上一条还在编码：直接用原片完成导入
+        Complete-Import $libPath $type $appName
         return
     }
-    $type = if ($ext -in @('.mp4', '.webm')) { 'video' } else { 'image' }
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $libName = "$stamp$ext"
-    Copy-Item -Path $file -Destination (Join-Path $hubLib $libName) -Force
-    $libPath = Join-Path $hubLib $libName
-    if ($type -eq 'video') {
-        $statusText.Text = '正在归一化视频（≤1080p/30fps，时长取决于视频大小）…'
-        $libPath = Convert-ToNormVideo $libPath
-    }
+    $tmp = Join-Path $hubLib ([IO.Path]::GetFileNameWithoutExtension($libPath) + '.norm.mp4')
+    $argStr = "-hide_banner -loglevel error -y -i `"$libPath`" -vf `"scale='min(1920,iw)':-2,fps=30`"" +
+              " -c:v libx264 -crf 25 -preset veryfast -pix_fmt yuv420p -movflags +faststart -an `"$tmp`""
+    try { $proc = Start-Process -FilePath $ff -ArgumentList $argStr -WindowStyle Hidden -PassThru -ErrorAction Stop }
+    catch { Complete-Import $libPath $type $appName; return }
+    $script:NormJob = @{ Proc = $proc; Tmp = $tmp; Lib = $libPath; App = $appName; Type = $type }
+    $statusText.Text = '正在归一化视频（≤1080p/30fps，时长取决于视频大小）… 期间可继续使用选择器'
+    $normTimer.Start()
+}
+
+function Complete-Import([string]$libPath, [string]$type, [string]$appName) {
     Add-LibEntry ([IO.Path]::GetFileName($libPath)) $type $appName
     $script:WpError = $null
     Set-AppStaticWallpaper $appName $libPath
@@ -1539,6 +1569,49 @@ function Import-Wallpaper([string]$file, [string]$appName) {
     $statusText.Text = "已为 $appName 设置并收藏：$([IO.Path]::GetFileName($libPath))`n$([math]::Round((Get-Item $libPath).Length/1MB,1)) MB · 仅作用于 $appName；要批量应用到其他应用请到「壁纸库」页点「应用」"
     Update-Library
 }
+
+function Import-Wallpaper([string]$file, [string]$appName) {
+    if (-not (Test-Path $file)) { return }
+    $ext = [IO.Path]::GetExtension($file).ToLower()
+    if ($ext -eq '.jpeg') { $ext = '.jpg' }
+    if ($ext -notin @('.mp4', '.webm', '.gif', '.webp', '.png', '.jpg')) {
+        $statusText.Text = '不支持的文件类型：' + $ext
+        return
+    }
+    $type = if ($ext -in @('.mp4', '.webm')) { 'video' } else { 'image' }
+    # 时间戳 + 4 位随机后缀：同秒导入同扩展名不再互相覆盖（被硬链接为当前壁纸时，覆盖会写穿库文件）
+    $libName = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 4) + $ext
+    $libPath = Join-Path $hubLib $libName
+    try { Copy-Item -Path $file -Destination $libPath -ErrorAction Stop } catch {
+        $statusText.Text = '导入失败（复制到壁纸库）：' + $_.Exception.Message
+        return
+    }
+    if ($type -eq 'video') { Start-VideoNormalize $libPath $appName $type; return }
+    Complete-Import $libPath $type $appName
+}
+
+$normTimer = New-Object Windows.Threading.DispatcherTimer
+$normTimer.Interval = [TimeSpan]::FromMilliseconds(400)
+$normTimer.Add_Tick({
+    $j = $script:NormJob
+    if ($j -eq $null) { $normTimer.Stop(); return }
+    $exited = $false
+    try { $exited = $j.Proc.HasExited } catch { $exited = $true }
+    if (-not $exited) { return }
+    $normTimer.Stop()
+    $script:NormJob = $null
+    $final = $j.Lib
+    try {
+        # 压缩成功且确实更小才用归一化产物；否则保留原片
+        if ((Test-Path $j.Tmp) -and (Get-Item $j.Tmp).Length -gt 0 -and ((Get-Item $j.Tmp).Length -lt (Get-Item $j.Lib).Length)) {
+            Remove-Item $j.Lib -Force -ErrorAction SilentlyContinue
+            $final = $j.Tmp
+        } else {
+            Remove-Item $j.Tmp -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+    Complete-Import $final $j.Type $j.App
+})
 
 function Apply-LibraryItem($item) {
     $src = Join-Path $hubLib $item.file
@@ -1713,7 +1786,7 @@ function Update-Library {
         } else {
             $img = New-Object Windows.Controls.Image
             $img.Stretch = 'UniformToFill'
-            try { $img.Source = Get-ImageSource $src } catch {}
+            try { $img.Source = Get-GridImageSource $src } catch {}
             $clipBorder.Child = $img
         }
         [Windows.Controls.Grid]::SetRow($clipBorder, 0)
@@ -1824,7 +1897,7 @@ body[data-vscode-theme-name*="Dark" i], body[data-vscode-theme-name*="dark"], bo
         if ($AppMap[$name].Terminal) {
             # 终端应用：直接写 WT profile 的 backgroundImageOpacity（热加载即时生效），无需 custom.css 与标记
             $err = Set-WtBackground $name (Get-WallpaperFile $name) $v
-            if ($err) { $statusText.Text = $err }
+            if ($err) { $script:WpError = $err }   # 经 WpError 上报，避免被 Tick 里的成功文案覆盖
             continue
         }
         $css = Join-Path $AppMap[$name].Dir 'custom.css'
@@ -1835,8 +1908,10 @@ body[data-vscode-theme-name*="Dark" i], body[data-vscode-theme-name*="dark"], bo
         } else {
             $text = $text.TrimEnd() + "`r`n`r`n" + $block
         }
-        [IO.File]::WriteAllText($css, $text, [Text.UTF8Encoding]::new($true))
-        Touch-LiveMarker $name
+        try {
+            [IO.File]::WriteAllText($css, $text, [Text.UTF8Encoding]::new($true))
+            Touch-LiveMarker $name
+        } catch { $script:WpError = "写 $name 的 custom.css 失败：" + $_.Exception.Message }
     }
 }
 
@@ -1847,8 +1922,14 @@ $uiTimer.Add_Tick({
     $v = [math]::Round($uiSlider.Value / 100, 2)
     # 透明度永远按应用单独设置：只写当前查看的应用，不做统一覆盖
     $targets = @($script:NowApp)
+    $script:WpError = $null
     Set-UiAlpha $v $targets
-    $statusText.Text = "界面不透明度 $([int]$uiSlider.Value)% 已应用到 $($targets -join '、')，几秒内自动生效（无需重启）。"
+    if ($script:WpError) {
+        $statusText.Text = "界面不透明度应用失败：" + $script:WpError
+        $script:WpError = $null
+    } else {
+        $statusText.Text = "界面不透明度 $([int]$uiSlider.Value)% 已应用到 $($targets -join '、')，几秒内自动生效（无需重启）。"
+    }
 })
 $uiSlider.Add_ValueChanged({
     $uiAlphaText.Text = ([int]$uiSlider.Value).ToString() + '%'
@@ -1861,6 +1942,13 @@ $uiSlider.Add_ValueChanged({
 (Ctrl 'DragBar').Add_MouseLeftButtonDown({ try { $window.DragMove() } catch {} })
 (Ctrl 'BtnClose').Add_Click({ $window.Close() })
 (Ctrl 'BtnMin').Add_Click({ $window.WindowState = 'Minimized' })
+# 关窗时归一化还在后台跑：终止 ffmpeg 并清理半成品（避免孤儿进程与残留 .norm.mp4）
+$window.Add_Closing({
+    if ($script:NormJob -ne $null) {
+        try { if (-not $script:NormJob.Proc.HasExited) { $script:NormJob.Proc.Kill() } } catch {}
+        try { Remove-Item $script:NormJob.Tmp -Force -ErrorAction SilentlyContinue } catch {}
+    }
+})
 
 (Ctrl 'TabNow').Add_Checked({
     (Ctrl 'PageNow').Visibility = 'Visible'
@@ -2079,7 +2167,7 @@ function Add-AiResultCard([string]$fileName) {
     $clip.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#0B0D12')
     $img = New-Object Windows.Controls.Image
     $img.Stretch = 'UniformToFill'
-    try { $img.Source = Get-ImageSource $src } catch {}
+    try { $img.Source = Get-GridImageSource $src } catch {}
     $clip.Child = $img
     [Windows.Controls.Grid]::SetRow($clip, 0)
     $panel.Children.Add($clip) | Out-Null
@@ -2355,7 +2443,8 @@ function Start-Repair {
     foreach ($name in $broken) {
         $app = $AppMap[$name]
         $dir = $script:Health[$name].Dir
-        if (-not $dir -and -not $app.MsixId) {
+        # 代理型应用（豆包/Codex）补丁在 hub 启动器，没有 resources 目录：自动识别不到也不用弹框指认
+        if (-not $dir -and -not $app.MsixId -and -not $app.Agent) {
             $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
             $dlg.Description = "未能自动定位 $name 的安装目录，请手动选择（含 resources 文件夹的那一层）"
             if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and $dlg.SelectedPath) {

@@ -12,8 +12,9 @@
 #   custom.css  (optional extra styles)
 # Managed by the "AI Wallpaper Picker"; no need to touch this file manually.
 #
-# NOTE: file is ASCII-only on purpose (PS 5.1 no-BOM safe). Chinese UI strings are
-#       stored base64-encoded and decoded at runtime.
+# NOTE: file contains Chinese comments; keep the UTF-8 BOM (PS 5.1 would read it as
+#       GBK otherwise). User-visible Chinese strings are base64-encoded and decoded
+#       at runtime.
 
 param([int]$Port = 0)
 $ErrorActionPreference = 'Stop'

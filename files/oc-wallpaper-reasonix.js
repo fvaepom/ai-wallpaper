@@ -146,7 +146,8 @@
   setInterval(function () { if (!document.hidden) deopaque(); }, 12000);
 
   /* ── 用户自定义微调：壁纸目录下的 custom.css（同源 ./zwp/custom.css）。
-     编辑后由轮换标记触发热重载，或切一次窗口（visibilitychange）重载 ── */
+     轮换标记变化会重挂载本表（reasonix:// 特权协议直读磁盘、无 HTTP 缓存层；
+     若编辑后仍见旧样式，重启一次应用即可） ── */
   var WALLPAPER_DIR = '__WALLPAPER_DIR__/'; // 占位符，由 apply-patch.ps1 替换
   var ROTATE_DIR = WALLPAPER_DIR + 'rotate/';
   var exts = ['mp4', 'webm', 'gif', 'webp', 'png', 'jpg'];
@@ -222,8 +223,9 @@
   var INTERVALS = [1, 5, 15, 30, 60, 120]; // 选择器可生成的换片间隔（分钟）
   var intervalTimer = null;
 
-  /* bust = 缓存穿透串（热切换重探时传时间戳）：同名文件被选择器覆盖后，
-     Chromium 可能仍回旧缓存图，带 ?v= 强制按磁盘现值重载 */
+  /* bust = 热切换重探的触发代号。本变体【不】把它拼进 URL：reasonix:// 是特权协议
+     直读磁盘（无 HTTP 缓存层），加查询串反而可能与路径解析/缓存键产生兼容问题 ——
+     与 Marvis/DSH 同款约束：覆盖同名 wallpaper.* 后需重启应用才保证可见 */
   function rotateStart(bust) {
     var idx = 0;
     try { idx = parseInt(localStorage.getItem('oc-wp-idx') || '0', 10) || 0; } catch (e) {}
@@ -232,12 +234,18 @@
   }
 
   function detectInterval(i, bust) {
-    if (i >= INTERVALS.length) return;
+    if (i >= INTERVALS.length) {
+      // 探测穷尽 = 轮换已关闭/间隔被清：必须清掉旧定时器，否则它按旧间隔永远存活
+      // （关轮换后旧 tick 反复全失败重探：视频壁纸每 N 分钟闪断一次；关间隔则轮换关不掉）
+      if (intervalTimer) { clearInterval(intervalTimer); intervalTimer = null; }
+      return;
+    }
     var minutes = INTERVALS[i];
     var img = new Image();
     img.onload = function () {
       if (intervalTimer) clearInterval(intervalTimer); // 热切换重探后不留旧定时器
       intervalTimer = setInterval(function () {
+        if (document.hidden) return; // 后台零解码：隐藏期不换片，恢复可见后的下一个 tick 自然续上
         var cur = 0;
         try { cur = parseInt(localStorage.getItem('oc-wp-idx') || '0', 10) || 0; } catch (e) {}
         tryRotate(cur + 1, bust);
@@ -276,7 +284,7 @@
 
   /* ── 热切换：选择器改动设置后会写入 refresh-N.gif 标记（编号 1..3 循环，
      兼容已部署各应用的旧版脚本约定），每 5 秒探测一次全部标记位，
-     位图变化即带缓存穿透重探壁纸，免重启生效。
+     位图变化即全量重探壁纸（换片/换壁纸免重启；同名文件覆盖除外，见 bust 说明）。
      页面隐藏时跳过探测（此时探测纯耗磁盘读，发现也得等可见才能换），恢复可见立即补测 ── */
   var lastMarker = -1;
   function probeMarkers() {

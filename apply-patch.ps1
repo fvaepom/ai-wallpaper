@@ -185,6 +185,9 @@ $Apps = @{
         AgentFiles  = @('doubao-launcher.ps1', 'doubao-launcher.vbs')
         AgentExe    = 'Doubao.exe'
         AgentPorts  = @(19222, 19223, 19224, 19225, 19226)
+        # 官方快捷方式的原始指向/参数（回滚还原用）：豆包直接启动、无参数
+        AgentLnkTarget = ''
+        AgentLnkArgs   = ''
     }
     'Marvis' = @{
         Process     = 'Marvis'
@@ -435,6 +438,7 @@ if ($needAdmin -and -not (Test-Admin)) {
     if ($InstallDir) { $argList += @('-InstallDir', "`"$InstallDir`"") }
     if ($Rollback)   { $argList += '-Rollback' }
     if ($NoShortcut) { $argList += '-NoShortcut' }
+    if ($Force)      { $argList += '-Force' }   # 不转发会静默降级为 no-op（AutoClaw -Force 场景）
     Start-Process powershell -Verb RunAs -ArgumentList ($argList + '-Elevated')
     exit 0
 }
@@ -503,7 +507,7 @@ if ($Rollback) {
         $mPid = (Get-NetTCPConnection -LocalPort $Cfg.MediaPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
         if ($mPid) { Stop-Process -Id $mPid -Force -ErrorAction SilentlyContinue }
         $junc = Join-Path $Cfg.OfflineDir 'zwp-media'
-        if (Test-Path $junc) { $null = & cmd /c ('rmdir "{0}"' -f $junc) 2>&1 }
+        if (Test-Path $junc) { $null = & cmd /c ('rmdir "{0}" 2>nul' -f $junc) }
         Write-Ok "已恢复 $idx （确认正常后可删除 $idxBak）"
         Write-Ok ("媒体服务已停止并注销。壁纸目录 {0} 保留。" -f $Cfg.WallDir)
         exit 0
@@ -519,7 +523,7 @@ if ($Rollback) {
         Copy-Item $htmlBak $htmlPath -Force
         Remove-Item (Join-Path (Split-Path $htmlPath) 'oc-wallpaper.js') -Force -ErrorAction SilentlyContinue
         $junc = Join-Path (Split-Path $htmlPath) 'zwp'
-        if (Test-Path $junc) { $null = & cmd /c ('rmdir "{0}"' -f $junc) 2>&1 }
+        if (Test-Path $junc) { $null = & cmd /c ('rmdir "{0}" 2>nul' -f $junc) }
         Write-Ok "已恢复（zwp junction 已移除）。确认正常后可删除 $htmlBak 释放空间。壁纸目录 $($Cfg.WallDir) 保留。"
         if ($Elevated) { Write-Host ''; Read-Host '按回车关闭窗口' | Out-Null }
         exit 0
@@ -593,12 +597,19 @@ if ($Rollback) {
 }
 
 # ── 安装（兼作升级后修复：补丁被更新覆盖时自动重打，自动识别安装目录） ──
+# hub 中心目录提前建好：agent/marvis/dsh 分支会往 %USERPROFILE%\.ai-wallpaper 拷启动器/媒体服务，
+# 全新机器上目录尚不存在时 Copy-Item 会直接崩（此前创建目录的代码在所有方法分支之后才执行）
+$hub = Join-Path $env:USERPROFILE '.ai-wallpaper'
+if (-not (Test-Path $hub)) { New-Item -ItemType Directory -Path $hub -Force | Out-Null }
 if ($Cfg.Method -eq 'agent') {
     # 代理型应用（豆包/Marvis 等 Chromium/CEF 壳）：不改程序文件，部署 CDP 代理启动器并把
     # 开始菜单快捷方式指向它。应用无需关闭、无需 Node.js；重复运行幂等（覆盖部署同版代理文件）。
-    $target = $Cfg.Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $target) { throw "未找到 $App 安装目录，请用 -InstallDir 参数指定。" }
+    $target = $null
+    if ($InstallDir -and (Test-Path $InstallDir)) { $target = $InstallDir }
+    if (-not $target) { $target = $Cfg.Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1 }
+    if (-not $target) { throw "未找到 $App 安装目录（候选路径均不存在，可用 -InstallDir 显式指定）。" }
     Write-Step "$App 目录: $target（CEF/Chromium 壳 → CDP 代理方案，不改程序文件）"
+    $run = $true
     $hub = Join-Path $env:USERPROFILE '.ai-wallpaper'
     foreach ($f in $Cfg.AgentFiles) {
         Copy-Item (Join-Path $Script:RepoFiles $f) (Join-Path $hub $f) -Force
@@ -664,7 +675,7 @@ if ($Cfg.Method -eq 'agent') {
     }
     # 清理上一版方案的 junction（媒体改走本机回环服务）
     $oldJunc = Join-Path $Cfg.OfflineDir 'zwp-media'
-    if (Test-Path $oldJunc) { $null = & cmd /c ('rmdir "{0}"' -f $oldJunc) 2>&1 }
+    if (Test-Path $oldJunc) { $null = & cmd /c ('rmdir "{0}" 2>nul' -f $oldJunc) }
 
     $already = Test-PatchPresent
     $run = (-not $already -or $Force)
@@ -858,12 +869,12 @@ if ($Cfg.Method -eq 'agent') {
         if (Test-Path $junc) {
             $item = Get-Item $junc -Force
             if ($item.LinkType -eq 'Junction' -or $item.LinkType -eq 'SymbolicLink') {
-                $null = & cmd /c ('rmdir "{0}"' -f $junc) 2>&1   # 只摘链接不动壁纸目录
+                $null = & cmd /c ('rmdir "{0}" 2>nul' -f $junc)   # 只摘链接不动壁纸目录
             } else {
                 throw "$junc 已存在且不是链接（疑似版本目录内容变化），请人工确认后删除重试。"
             }
         }
-        $null = & cmd /c ('mklink /J "{0}" "{1}"' -f $junc, $wallDir) 2>&1
+        $null = & cmd /c ('mklink /J "{0}" "{1}" 2>nul' -f $junc, $wallDir)
         if (-not (Test-Path (Join-Path $junc 'rotate'))) { throw "zwp junction 创建失败（$junc → $wallDir）" }
         Write-Ok "zwp → $wallDir（同源 ./zwp/... 供流）"
     }
@@ -1248,8 +1259,15 @@ $repairFiles = Join-Path $repairDir 'files'
 foreach ($d in @($repairDir, $repairFiles)) {
     if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
 }
-Copy-Item $PSCommandPath (Join-Path $repairDir 'apply-patch.ps1') -Force
-Copy-Item (Join-Path $Script:RepoFiles '*') $repairFiles -Recurse -Force
+# 一键修复链路（health-check / 选择器）运行的正是 repair 里的这份副本：源=目标时复制必抛错
+# （EAP=Stop 下中断收尾，补丁已好却被报失败），files 自拷自同样炸 → 检测到已运行于 repair 时跳过部署
+$repairSelf = [IO.Path]::GetFullPath($PSCommandPath) -eq [IO.Path]::GetFullPath((Join-Path $repairDir 'apply-patch.ps1'))
+if (-not $repairSelf) {
+    Copy-Item $PSCommandPath (Join-Path $repairDir 'apply-patch.ps1') -Force
+    Copy-Item (Join-Path $Script:RepoFiles '*') $repairFiles -Recurse -Force
+} else {
+    Write-Ok "修复工具链已在位（当前即运行于 repair 目录，跳过自部署）"
+}
 Write-Ok "已就绪：选择器「一键修复」自动识别安装目录并重打补丁"
 
 # 升级自愈：部署体检脚本 + 注册登录时静默体检的计划任务。

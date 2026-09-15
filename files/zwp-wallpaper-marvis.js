@@ -1,17 +1,17 @@
 /* ai-wallpaper — 壁纸层 + 界面透明化注入脚本（Marvis 专用变体）
  *
- * 由 apply-patch.ps1 注入到腾讯 Marvis 主窗口页面（marvis-offline-page\index.html）。
+ * 由 apply-patch.ps1 【内联】注入到腾讯 Marvis 主窗口页面（marvis-offline-page\using\index.html）。
  * Marvis 为 Qt5 + CEF 壳：页面由本地离线包经 CEF 拦截器以
- * https://yyb-ai-launcher-offline.qq.com/ 提供，本脚本与 zwp-media 目录并排部署在该目录下，
- * __WALLPAPER_DIR__ 指向 https://yyb-ai-launcher-offline.qq.com/zwp-media ——
- * 同一拦截器、同源 https 加载的媒体 / custom.css / 轮换标记目录
- * （该路径经 NTFS junction 映射到 %USERPROFILE%\.marvis\wallpaper）。
+ * https://yyb-ai-launcher-offline.qq.com/ 提供。该拦截器是白名单式——junction/新增文件一律拒绝
+ * （外链脚本 404），跨源 + 带查询串的请求也会被拒（同源带串、跨源无串正常）→
+ * 媒体 / custom.css / 轮换标记全部来自 __WALLPAPER_DIR__ = http://127.0.0.1:19399
+ * （本机回环 HTTP 媒体服务，计划任务「AI壁纸媒体服务」登录自启，仅服务壁纸目录；
+ * 127.0.0.1 是 Chromium 认定的安全来源），故本变体不带 ?v= 缓存穿透参数。
  * 壁纸查找顺序：
  *   1. 自动轮换（检测到 <壁纸目录>\rotate\rotate-1.* 时启用）：
  *      每次页面加载按 localStorage 计数器换下一张 rotate-N.*
  *   2. <壁纸目录>\wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
- *   3. 本文件同目录下的 wallpaper.*
- *   4. 都没有 → 内置"动态极光渐变"兜底
+ *   3. 都没有 → 内置"动态极光渐变"兜底
  * （__WALLPAPER_DIR__ 占位符由 apply-patch.ps1 替换）
  */
 ;(function () {
@@ -56,18 +56,6 @@
     '  100%{transform:translate(-4vw,-4vh) scale(.9);}}',
     '@media (prefers-reduced-motion: reduce){#oc-wallpaper.aurora::before,#oc-wallpaper.aurora::after{animation:none;}}',
 
-    /* Marvis（腾讯，Qt5+CEF，界面为 CSS-in-JS 哈希类名）：v1 基础透明化。
-       根透明 + 官方 CSS 变量 --default-bg-color（缺省 #f7f7f7）半透明 +
-       已知白面板按 [class*=模块名] 软化（CSS-module 哈希前缀跨版本基本稳定）。
-       面板级精细透明化可用 custom.css 覆盖补充 */
-    ':root,:host{',
-    '  --default-bg-color:rgba(247,247,247,var(--ocwp-ui-alpha,.55)) !important;}',
-    'html,body{background:transparent !important;}',
-    '#root,#app,#wrapper{background:transparent !important;}',
-    '[class*="_inputBar_"]{background:rgba(255,255,255,.72) !important;}',
-    '[class*="_question_"]{background:rgba(251,251,251,.6) !important;}',
-    '[class*="_question_"]:hover{background:rgba(255,255,255,.78) !important;}',
-    '[class*="_dropdown_"]{background:rgba(255,255,255,.94) !important;}',
     /* Marvis（腾讯，Qt5+CEF，界面为 CSS-in-JS 哈希类名）：v1 透明化。
        根透明 + 官方 CSS 变量 --default-bg-color（缺省 #f7f7f7）半透明 +
        已知面板按 [class*=模块名] 软化（CSS-module 哈希前缀跨版本基本稳定）。
@@ -229,12 +217,18 @@
   }
 
   function detectInterval(i, bust) {
-    if (i >= INTERVALS.length) return;
+    if (i >= INTERVALS.length) {
+      // 探测穷尽 = 轮换已关闭/间隔被清：必须清掉旧定时器，否则它按旧间隔永远存活
+      // （关轮换后旧 tick 反复全失败重探：视频壁纸每 N 分钟闪断一次；关间隔则轮换关不掉）
+      if (intervalTimer) { clearInterval(intervalTimer); intervalTimer = null; }
+      return;
+    }
     var minutes = INTERVALS[i];
     var img = new Image();
     img.onload = function () {
       if (intervalTimer) clearInterval(intervalTimer); // 热切换重探后不留旧定时器
       intervalTimer = setInterval(function () {
+        if (document.hidden) return; // 后台零解码：隐藏期不换片，恢复可见后的下一个 tick 自然续上
         var cur = 0;
         try { cur = parseInt(localStorage.getItem('oc-wp-idx') || '0', 10) || 0; } catch (e) {}
         tryRotate(cur + 1, bust);
