@@ -13,7 +13,7 @@
 - 🤖 **AI 生成壁纸**：内置「AI 生成」页，调用豆包 Seedream 图像生成（火山方舟 API），输入描述直接生成壁纸并入库，一键换上
 - 🎛️ 所有透明度参数集中在壁纸目录下的 `custom.css`，改完重启即见，**无需重新打补丁**
 - 🩹 **一键修复**：应用升级覆盖补丁后，选择器自动发现失效并弹警告条，一键自动识别安装目录重打补丁（补丁脚本随安装部署到本机，无需找回仓库）
-- ↩️ 一键回滚：补丁自动备份原程序文件
+- ↩️ **一键还原**：选择器里每个应用可一键「还原默认」——程序文件从自动备份还原、壁纸数据清除，回到打补丁前的最初状态
 
 > ⚠️ **本项目不分发任何第三方应用本体**，只分发补丁脚本和我们自己编写的注入文件。安装时在你本机的程序上执行修改，原文件自动备份。
 
@@ -31,7 +31,7 @@
 - 🔄 Auto-rotate: cycle through selected wallpapers on every app launch
 - 🤖 AI-generated wallpapers (Doubao Seedream) straight from the picker
 - 🩹 One-click repair: after an app update breaks the patch, the picker detects it and re-applies automatically (install dir is re-discovered on the fly)
-- ↩️ Fully reversible — original program files are backed up automatically
+- ↩️ Fully reversible — every app has a one-click **Restore to defaults** in the picker (original files are restored from the automatic backup)
 
 > ⚠️ This project does **not** distribute any third-party app binaries — only our own patch scripts and injection files. Patches are applied to apps already installed on your machine, with automatic backups.
 >
@@ -89,7 +89,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App DeepS
 **豆包桌面版**例外：它是 Chromium 壳（主窗口为 `chrome://doubao-chat` 内部页，非 Electron），不改任何程序文件——
 安装只做三件事：把 CDP 代理启动器部署到 `%USERPROFILE%\.ai-wallpaper\`、把开始菜单「豆包」快捷方式改指该启动器
 （图标不变）、创建壁纸目录 `~\.doubao\wallpaper\`。之后**从「豆包」快捷方式启动**即带壁纸；
-换壁纸 / 轮换 / 恢复极光**热生效，无需重启豆包**。
+换壁纸 / 轮换 / 清除壁纸**热生效，无需重启豆包**。
 
 **腾讯 Marvis** 走**离线页内联补丁**（Qt5 + CEF 壳，详见下方「工作原理」）：改的是用户可写的
 Roaming 离线缓存（`%APPDATA%\Tencent\Marvis\marvis-offline-page\using\`），安装/修复**零 UAC、免 Node、
@@ -109,8 +109,9 @@ Windows Terminal 的 `settings.json`（商店版 / 预览版 / 散装版任一�
 
 - 双击桌面的 **AI壁纸设置**（统一选择器，装在 `%USERPROFILE%\.ai-wallpaper\`）→ 选择图片 / 视频（或直接拖文件进窗口）→ 几秒内自动生效，无需重启
 - **「当前壁纸」页按应用单独显示**：顶部下拉框切换要查看的应用，预览与角标显示该应用**实际生效**的壁纸
-  （轮换中的应用显示轮换集与换片节奏，未设置的显示极光兜底）；选择图片 / 恢复极光 / 重启 / 不透明度都只作用于当前查看的应用
-- **「壁纸库」页**顶部的**应用芯片**勾选批量操作的目标应用（ZCode / WorkBuddy / OpenCode / Codex，自动探测）：
+  （轮换中的应用显示轮换集与换片节奏，未设置的显示极光兜底）；选择图片 / 清除壁纸 / 还原默认 / 重启 / 不透明度都只作用于当前查看的应用
+- **「还原默认」按钮**（当前壁纸页）：把当前查看的应用恢复到打补丁前的最初状态，详见「卸载 / 回滚」
+- **「壁纸库」页**顶部的**「目标应用」选择器**（点开弹出面板勾选应用）决定批量操作的目标（所有已接入应用）：
   - **同步设置开**（默认）：一套壁纸与轮换设置应用到所有勾选的应用
   - **同步设置关**：只改当前勾选的应用，其他应用保持各自的壁纸与轮换设置
 - **共享壁纸库**存放在 `%USERPROFILE%\.ai-wallpaper\library\`，所有应用共用；各应用旧库会自动导入
@@ -147,7 +148,7 @@ PowerShell 与 CMD 由 Windows Terminal（WT）承载，壁纸走 **WT profile �
   明确报错并保留原壁纸
 - **不透明度滑杆语义与其他应用一致**（越高界面越实）：映射为 WT 的 `backgroundImageOpacity = 1 - 滑杆值`，
   默认 55% → 图片不透明度 0.45；拉伸模式固定 `uniformToFill`（等同其他应用的 cover）
-- **恢复极光 = 恢复纯色**：终端没有极光兜底，清除壁纸即移除背景三键（profile 无条件清；defaults
+- **清除壁纸 = 恢复纯色**：终端没有极光兜底，清除壁纸即移除背景三键（profile 无条件清；defaults
   仅在正指向该应用壁纸时才清，避免误删另一终端目标写入的值），回到 WT 默认背景色
 - **自动轮换降级**：WT 没有轮换脚本可驱动，开启轮换时把轮换集第 1 张固定为当前壁纸
 - **profile 定位**：优先按 WT 动态 profile 的规范 GUID 精确匹配（PowerShell
@@ -200,6 +201,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App WorkB
 编辑 `%USERPROFILE%\.zcode\wallpaper\custom.css`（文件内有注释模板），改动会在下一次标记刷新时自动重载（几秒内）。删除该文件即恢复默认值。
 
 ## 卸载 / 回滚
+
+**「AI壁纸设置」→「当前壁纸」页 →「还原默认」**：把当前查看的应用一键恢复到打补丁前的最初状态——
+
+1. 程序文件从 `.zwp-backup` 原版备份还原（后台调用 `apply-patch.ps1 -Rollback`，与一键修复同链路、自动识别安装目录）；
+   豆包 / Codex 还原壁纸启动器改动，Marvis 恢复 Roaming 离线页原版并注销媒体服务
+2. 该应用的壁纸数据（壁纸目录 / refresh 标记 / 轮换槽位 / 配置）删除，随后从选择器列表移除；正在运行的应用会先关闭（需确认）
+3. PowerShell / CMD 为零补丁目标：还原 = 清除 Windows Terminal 的背景三键（含选择器追加的最小 profile 条目），已开窗口即时热生效
+4. 还原 Marvis 时若 DeepSeek Harness 仍在使用，会自动重新注册拉起两者共用的回环媒体服务
+
+共享壁纸库与其余应用不受影响；还原后随时可重新执行 `apply-patch.ps1` 装回。命令行单个应用整体回滚：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -Rollback
@@ -333,6 +344,26 @@ Electron 的 asar 本质是一个打包格式，任何 Electron 应用的 HTML �
 - 视频壁纸占用 GPU，低配机器建议用图片或 gif
 - PowerShell / CMD 壁纸只在 Windows Terminal 承载时生效（经典 conhost 无背景图能力）；WT 不支持
   视频背景，应用视频时自动降级为抽帧静态图；设置 WT 自带「外观」里同名选项会覆盖本补丁写入的值
+
+## 2026-09-15 · 新增「还原默认」
+
+「AI壁纸设置」的「当前壁纸」页新增**还原默认**按钮（第四个操作键，与清除壁纸/壁纸文件夹/重启并列）：
+把当前查看的应用一键恢复到打补丁前的最初状态——**是应用自己的原始界面，不是极光兜底**（极光兜底由
+「清除壁纸」按钮产生，该按钮原名「恢复极光」，已更名以免与还原混淆）。程序文件从 `.zwp-backup` 原版备份
+还原（后台跑 `apply-patch.ps1 -Rollback`，与一键修复同链路、自动识别安装目录、识别不到可弹框人工指认），
+运行中的应用先确认关闭（关不掉——如管理员权限的 AutoClaw——会明确报错而不是静默半途而废）；还原成功后
+该应用的壁纸目录（含 refresh 标记/轮换槽位/配置）整目录删除并从选择器列表移除——目录只要残留，下次启动
+就会被体检误报「补丁失效」。还原 Marvis 时若 DeepSeek Harness 仍在使用，会自动按安装时的任务定义重新
+注册拉起两者共用的回环媒体服务（CLI 回滚会停掉它）。终端目标（PowerShell / CMD）常驻列表不移除，还原 =
+清除 Windows Terminal 背景三键并顺带移除当初追加的最小 profile 条目，settings.json 尽量回到原样。
+
+**还原是持久的**：回滚成功会把应用记入「已还原档案」（`~\.ai-wallpaper\restored.txt`，一行一个应用 ID），
+登录体检任务「AI壁纸体检」跳过档案内的应用——否则还原后补丁缺失会被体检当成升级损坏而再次自动重打；
+之后重新执行 `apply-patch.ps1` 安装（或选择器一键修复）会自动从档案移除，体检恢复正常覆盖。
+
+**界面重设计**：「当前查看」应用下拉框与「界面不透明度」滑杆改为与整体一致的暗色自绘样式
+（二者原先用 WPF 原生控件，是系统灰白外观）；壁纸库页的 13 个应用芯片收进「目标应用」弹出选择器，
+页面上只保留一个「已选 N / M 个应用」摘要按钮，点开勾选、点「完成」收起。
 
 ## 2026-09-15 审查修复
 

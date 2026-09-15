@@ -39,6 +39,36 @@ function Write-Step($msg)  { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)    { Write-Host "    $msg" -ForegroundColor Green }
 function Write-Warn2($msg) { Write-Host "    $msg" -ForegroundColor Yellow }
 
+# ── 已还原档案（~\.ai-wallpaper\restored.txt，一行一个应用 ID）──
+# 用户主动还原（-Rollback）过的应用记入档案：登录体检（health-check）跳过这些应用，
+# 避免还原被当成「补丁失效」而再次自动重打；之后任意一次成功走完安装流程即从档案移除。
+# 用纯文本而不用 JSON：PS 5.1 的 ConvertFrom/To-Json 对单元素数组与管道展开有多处怪癖
+# （嵌套数组不展开、多元素管道写出 {"value":…,"Count":N} 包装），纯文本无此烦恼。
+$RestoredFile = Join-Path (Join-Path $env:USERPROFILE '.ai-wallpaper') 'restored.txt'
+function Read-RestoredList {
+    if (-not (Test-Path $RestoredFile)) { return @() }
+    try {
+        return @(Get-Content $RestoredFile -Encoding UTF8 |
+            ForEach-Object { ($_ -replace '#.*$', '').Trim() } |
+            Where-Object { $_ })
+    } catch { return @() }
+}
+function Mark-Restored([string]$id) {
+    try {
+        $list = @(Read-RestoredList | Where-Object { $_ -ne $id })
+        $list += $id
+        [IO.File]::WriteAllLines($RestoredFile, [string[]]$list, [Text.UTF8Encoding]::new($false))
+        Write-Ok "已记入还原档案（登录体检将跳过该应用）: $RestoredFile"
+    } catch { Write-Warn2 "还原档案写入失败（$($_.Exception.Message)），登录体检可能再次询问重打" }
+}
+function Unmark-Restored([string]$id) {
+    try {
+        $list = @(Read-RestoredList | Where-Object { $_ -ne $id })
+        if ($list.Count -eq 0) { Remove-Item $RestoredFile -Force -ErrorAction SilentlyContinue; return }
+        [IO.File]::WriteAllLines($RestoredFile, [string[]]$list, [Text.UTF8Encoding]::new($false))
+    } catch {}
+}
+
 # ── 每个应用的补丁配置 ──────────────────────────────────
 $Apps = @{
     'ZCode' = @{
@@ -494,6 +524,7 @@ if ($Rollback) {
         $hub = Join-Path $env:USERPROFILE '.ai-wallpaper'
         foreach ($f in $Cfg.AgentFiles) { Remove-Item (Join-Path $hub $f) -Force -ErrorAction SilentlyContinue }
         Write-Ok ("已移除代理启动器（$hub）。壁纸目录 {0} 保留。" -f $Cfg.WallDir)
+        Mark-Restored $App
         exit 0
     }
     if ($Cfg.Method -eq 'marvis') {
@@ -510,6 +541,7 @@ if ($Rollback) {
         if (Test-Path $junc) { $null = & cmd /c ('rmdir "{0}" 2>nul' -f $junc) }
         Write-Ok "已恢复 $idx （确认正常后可删除 $idxBak）"
         Write-Ok ("媒体服务已停止并注销。壁纸目录 {0} 保留。" -f $Cfg.WallDir)
+        Mark-Restored $App
         exit 0
     }
     if ($Cfg.Method -eq 'reasonix') {
@@ -525,6 +557,7 @@ if ($Rollback) {
         $junc = Join-Path (Split-Path $htmlPath) 'zwp'
         if (Test-Path $junc) { $null = & cmd /c ('rmdir "{0}" 2>nul' -f $junc) }
         Write-Ok "已恢复（zwp junction 已移除）。确认正常后可删除 $htmlBak 释放空间。壁纸目录 $($Cfg.WallDir) 保留。"
+        Mark-Restored $App
         if ($Elevated) { Write-Host ''; Read-Host '按回车关闭窗口' | Out-Null }
         exit 0
     }
@@ -538,6 +571,7 @@ if ($Rollback) {
         Copy-Item $idxBak $idx -Force
         Write-Ok "已恢复 $idx （确认正常后可删除 $idxBak）"
         Write-Ok ("媒体服务为与 Marvis 共用的基础设施，已保留运行。壁纸目录 {0} 保留。" -f $Cfg.WallDir)
+        Mark-Restored $App
         if ($Elevated) { Write-Host ''; Read-Host '按回车关闭窗口' | Out-Null }
         exit 0
     }
@@ -560,6 +594,7 @@ if ($Rollback) {
             }
         }
         Write-Ok "已恢复。确认正常后可删除 $htmlBak 释放空间。"
+        Mark-Restored $App
         if ($Elevated) { Write-Host ''; Read-Host '按回车关闭窗口' | Out-Null }
         exit 0
     }
@@ -592,6 +627,7 @@ if ($Rollback) {
         Write-Ok "已恢复 $exeBak 对应的原版主程序"
     }
     Write-Ok "已恢复。确认正常后可删除 $bak 释放空间。"
+    Mark-Restored $App
     if ($Elevated) { Write-Host ''; Read-Host '按回车关闭窗口' | Out-Null }
     exit 0
 }
@@ -1269,6 +1305,8 @@ if (-not $repairSelf) {
     Write-Ok "修复工具链已在位（当前即运行于 repair 目录，跳过自部署）"
 }
 Write-Ok "已就绪：选择器「一键修复」自动识别安装目录并重打补丁"
+# 补丁重新在位 → 从「已还原档案」移除，登录体检恢复正常覆盖该应用
+Unmark-Restored $App
 
 # 升级自愈：部署体检脚本 + 注册登录时静默体检的计划任务。
 # 体检本身只读（补丁完好零改动零 UAC）；失效时默认弹窗确认，health-check.ps1 -Silent 可全自动

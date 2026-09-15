@@ -53,6 +53,11 @@ ai-wallpaper — 给 AI 桌面应用注入动态壁纸
   · 换壁纸免重启（标记热切换）；个别应用需重启一次才见新壁纸，详见仓库 README
   · 应用升级后补丁失效：重新打开「AI壁纸设置」，顶部警告条一键修复
 
+【还原默认（撤销某个应用的壁纸补丁）】
+  · 「AI壁纸设置」→「当前壁纸」页 → 选中应用 → 点「还原默认」：
+    程序文件从原版备份还原、壁纸数据清除，回到打补丁前的最初状态
+  · PowerShell / CMD 为清除 Windows Terminal 背景图，恢复默认纯色
+
 【回滚】
   powershell -NoProfile -ExecutionPolicy Bypass -File apply-patch.ps1 -App <名称> -Rollback
 

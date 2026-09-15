@@ -17,6 +17,19 @@ $Repair = Join-Path $Hub 'repair'
 $Log    = Join-Path $Hub 'health.log'
 $Apply  = Join-Path $Repair 'apply-patch.ps1'
 
+# 已还原档案：用户主动还原过的应用记录在 restored.txt（一行一个应用 ID，# 后为注释）——
+# 对其而言「补丁丢失」是期望状态，跳过体检与修复，否则登录体检会把还原当成补丁失效
+# 再次自动重打。重新安装时 apply-patch 会自动从档案移除。
+$RestoredFile = Join-Path $Hub 'restored.txt'
+$Restored = @()
+if (Test-Path $RestoredFile) {
+    try {
+        $Restored = @(Get-Content $RestoredFile -Encoding UTF8 |
+            ForEach-Object { ($_ -replace '#.*$', '').Trim() } |
+            Where-Object { $_ })
+    } catch { $Restored = @() }
+}
+
 $Apps = @(
     @{ App = 'ZCode';      Kind = 'asar';  Process = 'ZCode';        Candidates = @('F:\Program files\ZCode', 'C:\Program files\ZCode', "$env:LOCALAPPDATA\Programs\zcode", "$env:LOCALAPPDATA\Programs\ZCode") },
     @{ App = 'OpenCode';   Kind = 'asar';  Process = 'OpenCode';     Candidates = @("$env:LOCALAPPDATA\Programs\@opencode-aidesktop", 'F:\Program files\OpenCode', 'C:\Program files\OpenCode', "$env:LOCALAPPDATA\Programs\OpenCode") },
@@ -168,6 +181,11 @@ function Restart-App($a) {
 
 $results = @()
 foreach ($a in $Apps) {
+    if ($Restored -contains $a.App) {
+        Log ($a.App + ' -> restored (已还原，跳过体检)')
+        if ($Report) { Write-Host ($a.App + ': restored') }
+        continue
+    }
     $st = Test-AppHealth $a
     $results += @{ App = $a.App; Status = $st; Cfg = $a }
     Log ($a.App + ' -> ' + $st)

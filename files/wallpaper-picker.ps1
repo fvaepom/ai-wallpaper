@@ -1,7 +1,11 @@
 ﻿# ai-wallpaper — AI 壁纸设置中心（ZCode / WorkBuddy / OpenCode / Codex / Trae / AutoClaw / Marvis / PowerShell / CMD 统一选择器）
-# 「当前壁纸」页按应用单独显示：顶部下拉框切换应用，预览与操作（选图/恢复极光/不透明度/重启）
+# 「当前壁纸」页按应用单独显示：顶部下拉框切换应用，预览与操作（选图/清除壁纸/还原默认/不透明度/重启）
 #   只作用于所选应用。应用端实际显示优先级与注入脚本一致：rotate-1.* 存在 → 轮换集，
 #   否则 wallpaper.*，否则内置极光（轮换位置由应用内 localStorage 决定，预览显示轮换集第 1 张）。
+#   「清除壁纸」只清壁纸文件，应用回到极光兜底；「还原默认」= 撤销该应用的壁纸补丁：
+#   程序文件从 .zwp-backup 原版备份还原（apply-patch -Rollback，并记入 restored.json 让登录体检
+#   不再自动重打）、壁纸数据（壁纸目录/轮换/refresh 标记/config）删除，随后从选择器列表移除；
+#   终端目标是清除 WT settings.json 的背景三键恢复默认纯色。共享壁纸库与其余应用不受影响。
 # 「壁纸库」页负责批量/同步管理与轮换：顶部应用芯片 + 同步开关（存于中心 config.json）。
 # 共享壁纸库存放于 %USERPROFILE%\.ai-wallpaper\library，改动通过 refresh 标记免重启热切换。
 # 「AI 生成」页调用豆包 Seedream（火山方舟 images/generations）文生图：描述 → 生成 → 自动入库 → 一键应用。
@@ -842,6 +846,170 @@ function Commit-Cfg($cfg) {
         </Setter.Value>
       </Setter>
     </Style>
+    <!-- 「当前查看」应用下拉框：自绘暗色圆角外观（原生 ComboBox 是系统灰白样式，与整体 UI 不符） -->
+    <Style x:Key="ComboDark" TargetType="ComboBox">
+      <Setter Property="Foreground" Value="#ECECEC"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="ItemContainerStyle">
+        <Setter.Value>
+          <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="#C9CEDA"/>
+            <Setter Property="Template">
+              <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                  <Border x:Name="bd" Background="Transparent" CornerRadius="6" Padding="9,6" Margin="0,1">
+                    <ContentPresenter/>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsHighlighted" Value="True">
+                      <Setter TargetName="bd" Property="Background" Value="#2E3342"/>
+                      <Setter Property="Foreground" Value="#ECECEC"/>
+                    </Trigger>
+                    <Trigger Property="IsSelected" Value="True">
+                      <Setter TargetName="bd" Property="Background" Value="#173156"/>
+                      <Setter Property="Foreground" Value="White"/>
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Setter.Value>
+            </Setter>
+          </Style>
+        </Setter.Value>
+      </Setter>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <ToggleButton Focusable="False" ClickMode="Press"
+                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="bd" Background="#262A35" BorderBrush="#3A4050" BorderThickness="1" CornerRadius="8">
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="1" Text="&#x25BE;" FontSize="11" Foreground="#8A90A0"
+                                   Margin="0,1,10,0" VerticalAlignment="Center"/>
+                      </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="bd" Property="Background" Value="#2E3342"/>
+                      </Trigger>
+                      <Trigger Property="IsChecked" Value="True">
+                        <Setter TargetName="bd" Property="BorderBrush" Value="#3B82F6"/>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <!-- 收起态显示选中项文本：绑 SelectedItem.Content 而非 SelectedValue，
+                   健康检查会把条目文本改成「名称 ⚠」，这里要跟着显示 -->
+              <TextBlock Text="{Binding SelectedItem.Content, RelativeSource={RelativeSource TemplatedParent}}"
+                         Margin="12,0,26,0" VerticalAlignment="Center" Foreground="#ECECEC"
+                         TextTrimming="CharacterEllipsis" IsHitTestVisible="False"/>
+              <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True"
+                     Focusable="False" PopupAnimation="Fade">
+                <Border Background="#14161D" BorderBrush="#3A4050" BorderThickness="1" CornerRadius="9"
+                        Padding="4" Margin="0,6,0,0" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="296">
+                  <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsPresenter/>
+                  </ScrollViewer>
+                </Border>
+              </Popup>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <!-- 「界面不透明度」滑杆：填充式进度条 + 圆形滑块（原生 Slider 是系统灰白样式） -->
+    <Style x:Key="SliderDark" TargetType="Slider">
+      <Setter Property="Height" Value="18"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Slider">
+            <Grid Background="Transparent" VerticalAlignment="Center">
+              <Border Height="4" CornerRadius="2" Background="#313646"/>
+              <Track x:Name="PART_Track" Focusable="False">
+                <Track.DecreaseRepeatButton>
+                  <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False" IsTabStop="False">
+                    <RepeatButton.Template>
+                      <ControlTemplate TargetType="RepeatButton">
+                        <Border Background="#3B82F6" Height="4" CornerRadius="2"/>
+                      </ControlTemplate>
+                    </RepeatButton.Template>
+                  </RepeatButton>
+                </Track.DecreaseRepeatButton>
+                <Track.IncreaseRepeatButton>
+                  <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False" IsTabStop="False">
+                    <RepeatButton.Template>
+                      <ControlTemplate TargetType="RepeatButton">
+                        <Border Background="Transparent" Height="14"/>
+                      </ControlTemplate>
+                    </RepeatButton.Template>
+                  </RepeatButton>
+                </Track.IncreaseRepeatButton>
+                <Track.Thumb>
+                  <Thumb Focusable="False" Width="7" Height="14">
+                    <Thumb.Template>
+                      <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="knob" Background="#ECECEC" CornerRadius="3.5"/>
+                        <ControlTemplate.Triggers>
+                          <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="knob" Property="Background" Value="White"/>
+                          </Trigger>
+                          <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="knob" Property="Background" Value="#3B82F6"/>
+                          </Trigger>
+                        </ControlTemplate.Triggers>
+                      </ControlTemplate>
+                    </Thumb.Template>
+                  </Thumb>
+                </Track.Thumb>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <!-- 壁纸库「目标应用」选择器：单按钮 + 弹出面板（13 个应用芯片平铺常驻太占地方） -->
+    <Style x:Key="TargetSelect" TargetType="ToggleButton">
+      <Setter Property="Foreground" Value="#C9CEDA"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ToggleButton">
+            <Border x:Name="bd" Background="#262A35" BorderBrush="#3A4050" BorderThickness="1"
+                    CornerRadius="8" Padding="11,0">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="&#x25BE;" FontSize="11" Foreground="#8A90A0"
+                           Margin="8,1,0,0" VerticalAlignment="Center"/>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#2E3342"/>
+              </Trigger>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="bd" Property="BorderBrush" Value="#3B82F6"/>
+                <Setter TargetName="bd" Property="Background" Value="#213048"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Window.Resources>
 
   <Border CornerRadius="14" Background="#1B1D23" BorderBrush="#2A2E3B" BorderThickness="1">
@@ -923,7 +1091,8 @@ function Commit-Cfg($cfg) {
                 <!-- SelectedValuePath 指向 Tag（应用名）：默认 SelectedValue 是 ComboBoxItem 自身，
                      字符串化后是 "System.Windows.Controls.ComboBoxItem: xxx" 英文类型名，
                      会经 SelectionChanged 污染 $script:NowApp，把「重启 …」按钮等文案全带歪 -->
-                <ComboBox Grid.Column="1" x:Name="NowAppCombo" Width="220" Height="28" FontSize="12"
+                <ComboBox Grid.Column="1" x:Name="NowAppCombo" Width="240" Height="32" FontSize="12"
+                          Style="{StaticResource ComboDark}"
                           SelectedValuePath="Tag"
                           VerticalContentAlignment="Center" ToolTip="选择要查看的应用（⚠ = 壁纸补丁失效）"/>
               </Grid>
@@ -965,10 +1134,13 @@ function Commit-Cfg($cfg) {
             </Border>
             <StackPanel Grid.Row="2" Margin="0,12,0,0">
               <Button x:Name="BtnPick" Style="{StaticResource BtnPrimary}" Content="为当前应用选择图片 / 视频..."/>
-              <UniformGrid Columns="3" Margin="0,10,0,0">
-                <Button x:Name="BtnClear" Style="{StaticResource BtnGhost}" Content="恢复极光" Margin="0,0,5,0"/>
-                <Button x:Name="BtnOpen"  Style="{StaticResource BtnGhost}" Content="壁纸文件夹" Margin="5,0"/>
-                <Button x:Name="BtnRestart" Style="{StaticResource BtnGhost}" Content="重启应用" Margin="5,0,0,0"/>
+              <UniformGrid Columns="4" Margin="0,10,0,0">
+                <Button x:Name="BtnClear" Style="{StaticResource BtnGhost}" Content="清除壁纸" Margin="0,0,4,0"
+                        ToolTip="清除当前应用的壁纸（未设置壁纸时应用内显示内置极光兜底）。要把应用恢复到打补丁前的原始状态请用「还原默认」"/>
+                <Button x:Name="BtnOpen"  Style="{StaticResource BtnGhost}" Content="壁纸文件夹" Margin="4,0"/>
+                <Button x:Name="BtnRestart" Style="{StaticResource BtnGhost}" Content="重启应用" Margin="4,0"/>
+                <Button x:Name="BtnRestore" Style="{StaticResource BtnGhost}" Content="还原默认" Margin="4,0,0,0"
+                        ToolTip="把该应用恢复到打补丁前的最初状态：程序文件从原版备份还原、壁纸数据清除（终端目标为清除 Windows Terminal 背景图）"/>
               </UniformGrid>
               <Grid Margin="2,12,0,0">
                 <Grid.ColumnDefinitions>
@@ -978,9 +1150,9 @@ function Commit-Cfg($cfg) {
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="界面不透明度" Foreground="#8A90A0" FontSize="11.5"
                            VerticalAlignment="Center" Margin="0,0,10,0"/>
-                <Slider Grid.Column="1" x:Name="UiAlpha" Minimum="0" Maximum="100" Value="55"
-                        VerticalAlignment="Center" IsMoveToPointEnabled="True"
-                        IsSnapToTickEnabled="True" TickFrequency="5"/>
+                <Slider Grid.Column="1" x:Name="UiAlpha" Style="{StaticResource SliderDark}" Minimum="0" Maximum="100" Value="55"
+                        VerticalAlignment="Center" IsMoveToPointEnabled="True" IsSnapToTickEnabled="True" TickFrequency="5"
+                        Margin="0,0,10,0"/>
                 <TextBlock Grid.Column="2" x:Name="UiAlphaText" Text="55%" Foreground="#C9CEDA" FontSize="11.5"
                            Width="38" TextAlignment="Right" VerticalAlignment="Center"/>
               </Grid>
@@ -1001,26 +1173,33 @@ function Commit-Cfg($cfg) {
             </Grid.RowDefinitions>
             <Border Grid.Row="0" Background="#101218" CornerRadius="10" Padding="14,9" Margin="0,0,0,8"
                     BorderBrush="#242835" BorderThickness="1">
-              <!-- 芯片独占一行（WrapPanel 在横向 StackPanel 里会拿到无限宽度，
-                   永不换行、直接溢出窗口，后面的应用根本点不到） -->
+              <!-- 应用芯片收进「目标应用」弹出面板：13 个芯片平铺常驻既占地又喧宾夺主 -->
               <Grid>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto"/>
-                  <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <Grid Grid.Row="0">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                  </Grid.ColumnDefinitions>
-                  <TextBlock Text="应用" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                  <TextBlock Grid.Column="1" Foreground="#4E5464" FontSize="10.5" VerticalAlignment="Center"
-                             TextTrimming="CharacterEllipsis" Text="勾选作为壁纸库批量操作的目标应用"/>
-                  <CheckBox Grid.Column="2" x:Name="SwSync" Style="{StaticResource Switch}" Content="同步设置"
-                            VerticalAlignment="Center" ToolTip="开：一套壁纸与轮换设置应用到所有勾选的应用；关：只改当前勾选的应用"/>
-                </Grid>
-                <WrapPanel Grid.Row="1" x:Name="AppChips" Margin="0,8,0,0" VerticalAlignment="Top"/>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="目标应用" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <ToggleButton Grid.Column="1" x:Name="AppTargetBtn" Style="{StaticResource TargetSelect}" Margin="0,0,10,0"
+                              ToolTip="选择壁纸库批量操作的目标应用"/>
+                <CheckBox Grid.Column="2" x:Name="SwSync" Style="{StaticResource Switch}" Content="同步设置"
+                          VerticalAlignment="Center" ToolTip="开：一套壁纸与轮换设置应用到所有勾选的应用；关：只改当前勾选的应用"/>
+                <Popup x:Name="AppTargetPopup" StaysOpen="False" AllowsTransparency="True" Focusable="False"
+                       PopupAnimation="Fade" PlacementTarget="{Binding ElementName=AppTargetBtn}" Placement="Bottom">
+                  <Border Background="#14161D" BorderBrush="#3A4050" BorderThickness="1" CornerRadius="10"
+                          Padding="12" Margin="0,6,0,0" Width="506">
+                    <StackPanel>
+                      <WrapPanel x:Name="AppChips"/>
+                      <Grid Margin="0,10,0,0">
+                        <TextBlock x:Name="AppTargetHint" Foreground="#6B7183" FontSize="10.5"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <Button x:Name="BtnTargetDone" Style="{StaticResource BtnMini}" Content="完成"
+                                Height="24" Padding="14,0" HorizontalAlignment="Right"/>
+                      </Grid>
+                    </StackPanel>
+                  </Border>
+                </Popup>
               </Grid>
             </Border>
             <Border Grid.Row="1" Background="#101218" CornerRadius="10" Padding="14,10" Margin="0,0,0,8"
@@ -1213,6 +1392,31 @@ function Update-ChipVisual {
         $chip = $script:ChipMap[$name]
         if ($script:Sync) { $chip.IsChecked = ($script:Checked -contains $name) }
         else { $chip.IsChecked = ($name -eq $script:Active) }
+    }
+    Update-TargetSummary
+}
+
+# 「目标应用」弹层开合：点击按钮切换；弹层因点外部关闭（StaysOpen=False）时同步按钮态
+$appTargetPopup = Ctrl 'AppTargetPopup'
+$appTargetBtn = Ctrl 'AppTargetBtn'
+$appTargetPopup.Add_Closed({ $appTargetBtn.IsChecked = $false })
+$appTargetBtn.Add_Click({ $appTargetPopup.IsOpen = -not $appTargetPopup.IsOpen })
+(Ctrl 'BtnTargetDone').Add_Click({ $appTargetPopup.IsOpen = $false })
+
+# 「目标应用」选择器按钮上的摘要与弹层底部的提示文案
+function Update-TargetSummary {
+    $btn = Ctrl 'AppTargetBtn'
+    if (-not $btn) { return }
+    $total = $script:Apps.Count
+    if ($script:Sync) {
+        $n = @($script:Checked | Where-Object { $script:ChipMap.ContainsKey($_) }).Count
+        $btn.Content = if ($total -gt 0 -and $n -ge $total) { "全部 $total 个应用" } else { "已选 $n / $total 个应用" }
+        $hint = Ctrl 'AppTargetHint'
+        if ($hint) { $hint.Text = '勾选要批量操作的应用，设置的壁纸与轮换会应用到所有勾选项' }
+    } else {
+        $btn.Content = $script:Active
+        $hint = Ctrl 'AppTargetHint'
+        if ($hint) { $hint.Text = '独立模式：只修改选中的这一个应用' }
     }
 }
 
@@ -1431,6 +1635,13 @@ function Set-WtBackground([string]$appName, $imgPath, [double]$alpha) {
             }
         } else {
             foreach ($k in $keys) { $m = $p.PSObject.Properties[$k]; if ($m) { $p.PSObject.Properties.Remove($k) } }
+            # 我们追加的最小 profile 条目（只有 guid/name 身份键）在清壁纸后一并移除，settings.json 回到原样；
+            # 真实 profile（含其他设置键）保留不动
+            $extra = @($p.PSObject.Properties | Where-Object { $_.Name -notin @('guid', 'name') })
+            if ($extra.Count -eq 0) {
+                $listProp = $profs.Value.PSObject.Properties['list']
+                if ($listProp) { $profs.Value.list = @($listProp.Value | Where-Object { $_ -ne $p }) }
+            }
             $dm = $defaults.PSObject.Properties['backgroundImage']
             if ($dm -and $dm.Value -and ([string]$dm.Value).StartsWith($AppMap[$appName].Dir, [StringComparison]::OrdinalIgnoreCase)) {
                 foreach ($k in $keys) { $m = $defaults.PSObject.Properties[$k]; if ($m) { $defaults.PSObject.Properties.Remove($k) } }
@@ -2570,6 +2781,187 @@ $recheckTimer.Add_Tick({
     $statusText.Text = if ($n -eq 0) { '检测完成：所有应用的壁纸补丁均正常。' } else { "检测完成：仍有 $n 个应用补丁失效，可点「一键修复」。`n$((Ctrl 'FixText').Text)" }
 })
 (Ctrl 'BtnFix').Add_Click({ Start-Repair })
+
+# ── 还原默认：把当前查看的应用恢复到打补丁前的最初状态 ────
+# 程序文件从 .zwp-backup 原版备份还原（后台调 repair\apply-patch.ps1 -Rollback，与一键修复同链路），
+# 该应用的壁纸目录（含 refresh 标记/轮换槽位/config）一并删除，随后从选择器列表移除。
+# 终端目标零补丁：清除 WT settings.json 背景三键（含我们追加的最小 profile 条目）即回默认纯色。
+# 共享壁纸库与其余应用不受影响；还原后随时可用 apply-patch.ps1 重新安装。
+$script:RestoreJob = $null
+
+function Remove-AppFromPicker([string]$name) {
+    $script:Apps = @($script:Apps | Where-Object { $_.Name -ne $name })
+    $script:AppMap.Remove($name)
+    $script:Health.Remove($name)
+    # 中心 config 的批量目标里同步去掉该应用（避免「应用」按钮拿到幽灵目标）
+    $hub = Get-HubConfig
+    $hub.checked = @($hub.checked | Where-Object { $_ -ne $name })
+    $hub.sync = $script:Sync
+    Save-HubConfig $hub
+    $script:Checked = @($script:Checked | Where-Object { $_ -ne $name })
+    if ($script:Active -eq $name) { $script:Active = @($script:Checked)[0] }
+    if (-not $script:Active -and $script:Apps.Count -gt 0) { $script:Active = $script:Apps[0].Name }
+    # 芯片与「当前查看」下拉框摘除该应用
+    if ($script:ChipMap.ContainsKey($name)) {
+        [void](Ctrl 'AppChips').Children.Remove($script:ChipMap[$name])
+        $script:ChipMap.Remove($name)
+    }
+    if ($script:NowComboMap.ContainsKey($name)) {
+        [void](Ctrl 'NowAppCombo').Items.Remove($script:NowComboMap[$name])
+        $script:NowComboMap.Remove($name)
+    }
+    if ($script:Apps.Count -eq 0) { return }   # 全部还原完毕：由调用方收尾
+    if (-not $script:AppMap.ContainsKey($script:NowApp)) {
+        $script:NowApp = $script:Apps[0].Name
+        (Ctrl 'NowAppCombo').SelectedItem = $script:NowComboMap[$script:NowApp]
+    }
+    Update-ChipVisual
+    Update-Library
+    Update-Hints
+    Update-AppHealth   # 重新汇总警告条：还原成功 ≠ 补丁失效
+}
+
+# Marvis 的 CLI 回滚会注销与 DeepSeek Harness 共用的回环媒体服务；DSH 还在用的话必须原样
+# 重新注册拉起（任务定义与 apply-patch 安装时一致），否则它的壁纸媒体会全部加载失败
+function Restore-SharedMediaService {
+    $taskName = 'AI壁纸媒体服务'
+    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) { return $null }
+    if (-not ($script:Apps.Name -contains 'DeepSeek Harness')) { return $null }
+    $h = $script:Health['DeepSeek Harness']
+    if (-not $h -or -not $h.Dir -or $h.Broken) { return $null }
+    $srv = Join-Path $hub 'zwp-media-server.ps1'
+    if (-not (Test-Path $srv)) { return $null }
+    try {
+        $action   = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $srv + '"')
+        $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force -ErrorAction Stop | Out-Null
+        Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $srv)
+        return $true
+    } catch { return $false }
+}
+
+function Start-Restore {
+    if ($script:RestoreJob -ne $null) { $statusText.Text = '还原正在进行中，请稍候…'; return }
+    $name = $script:NowApp
+    $app = $AppMap[$name]
+    if (-not $app) { return }
+
+    if ($app.Terminal) {
+        # 终端目标常驻列表（WT 存在即自建目录），还原 = 清背景三键恢复默认纯色，列表不移除
+        $ans = [System.Windows.MessageBox]::Show(
+            "将把 $name 恢复到最初状态：`n· 清除写入 Windows Terminal 的壁纸与背景三键（已打开的终端窗口即时热生效）`n· 删除壁纸目录 $($app.Dir)`n`n共享壁纸库不受影响。确认还原？",
+            '还原默认', 'YesNo', 'Warning')
+        if ($ans -ne 'Yes') { return }
+        $err = Set-WtBackground $name $null 0.55
+        if ($err) { $statusText.Text = "还原失败：$err"; return }
+        Get-ChildItem $app.Dir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Update-NowView
+        $statusText.Text = "$name 已还原默认：Windows Terminal 背景已恢复纯色（已打开的窗口即时生效）。"
+        return
+    }
+
+    $h = $script:Health[$name]
+    $dir = if ($h) { $h.Dir } else { $null }
+    # 代理型应用（豆包/Codex）补丁在 hub 启动器、Marvis 在 Roaming 离线页：都不需要安装目录；
+    # 其余应用识别不到目录时与一键修复一致，弹文件夹选择框人工指认
+    if (-not $dir -and -not $app.Agent -and -not $app.ProbeFile) {
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = "未能自动定位 $name 的安装目录，请手动选择（含 resources 文件夹的那一层）"
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and $dlg.SelectedPath) {
+            $dir = $dlg.SelectedPath
+        } else {
+            $statusText.Text = '已取消还原（未指定安装目录）。'
+            return
+        }
+    }
+    $running = Get-Process -Name $app.Proc -ErrorAction SilentlyContinue
+    $lines = @(
+        "将把 $name 恢复到打补丁前的最初状态：",
+        '· 程序文件从原版备份（.zwp-backup）还原，壁纸注入全部移除'
+    )
+    if ($running) { $lines += "· 需要先关闭正在运行的 $name" }
+    $lines += @(
+        '· 删除该应用的壁纸数据（壁纸目录 / 轮换 / refresh 标记 / 配置）',
+        '· 共享壁纸库与其余应用不受影响；之后可随时重装补丁'
+    )
+    if ($name -eq 'Codex') { $lines += '· 「ChatGPT」壁纸启动快捷方式会移除（商店包此前已卸载，如需继续使用请从 Microsoft Store 重装）' }
+    $ans = [System.Windows.MessageBox]::Show(($lines -join "`n") + "`n`n确认还原？", '还原默认', 'YesNo', 'Warning')
+    if ($ans -ne 'Yes') { return }
+    if ($running) {
+        $running | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
+        if (Get-Process -Name $app.Proc -ErrorAction SilentlyContinue) {
+            $statusText.Text = "$name 未能关闭（可能以管理员权限运行），请手动退出后重试还原。"
+            return
+        }
+    }
+    if (-not (Test-Path $RepairTool)) {
+        [System.Windows.MessageBox]::Show(
+            "未找到修复工具链：`n$RepairTool`n`n请重新执行一次 apply-patch.ps1，它会自动部署修复工具。",
+            '还原默认', 'OK', 'Warning') | Out-Null
+        return
+    }
+    $job = @{ App = $name; Id = $(if ($app.PatchId) { $app.PatchId } else { $name }); Dir = $dir }
+    (Ctrl 'BtnRestore').IsEnabled = $false
+    $statusText.Text = "正在还原 $name（从原版备份恢复程序文件，约需几十秒）…"
+    # 后台 runspace 调 apply-patch -Rollback，避免卡死界面；完成后由 $restoreTimer 回收
+    $ps = [powershell]::Create()
+    $null = $ps.AddScript({
+        param($tool, $j)
+        $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $tool, '-App', $j.Id, '-Rollback')
+        if ($j.Dir) { $argList += @('-InstallDir', $j.Dir) }
+        $out = & powershell.exe @argList 2>&1
+        return [pscustomobject]@{
+            Name = $j.App
+            Id   = $j.Id
+            Exit = $LASTEXITCODE
+            Log  = (($out | ForEach-Object { [string]$_ }) -join "`n")
+        }
+    }).AddArgument($RepairTool).AddArgument($job)
+    $script:RestoreJob = @{ Ps = $ps; Async = $ps.BeginInvoke(); Name = $name; Id = $job.Id }
+    $restoreTimer.Start()
+}
+
+$restoreTimer = New-Object Windows.Threading.DispatcherTimer
+$restoreTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+$restoreTimer.Add_Tick({
+    $job = $script:RestoreJob
+    if ($job -eq $null) { $restoreTimer.Stop(); return }
+    if (-not $job.Async.IsCompleted) { return }
+    $restoreTimer.Stop()
+    $r = $null
+    try { $r = $job.Ps.EndInvoke($job.Async) | Select-Object -First 1 } catch {}
+    $job.Ps.Dispose()
+    $script:RestoreJob = $null
+    (Ctrl 'BtnRestore').IsEnabled = $true
+    $name = $job.Name
+    if (-not $r -or $r.Exit -ne 0) {
+        $tail = if ($r) { (@($r.Log -split "`n") | Select-Object -Last 2) -join ' ' } else { '还原脚本未能运行' }
+        $statusText.Text = "还原 $name 失败：$tail"
+        return
+    }
+    $extra = ''
+    if ($name -eq 'Marvis') {
+        # CLI 回滚会停掉与 DeepSeek Harness 共用的媒体服务，DSH 还在用就原样补回
+        $ms = Restore-SharedMediaService
+        if ($ms -eq $true) { $extra = '（已为 DeepSeek Harness 重新拉起共用媒体服务）' }
+        elseif ($ms -eq $false) { $extra = '（注意：共用媒体服务未能自动恢复，DSH 壁纸媒体可能失效，可对其重跑一键修复）' }
+    }
+    $app = $script:AppMap[$name]
+    if ($app -and (Test-Path $app.Dir)) {
+        # 整目录删除：目录只要还在，下次启动就会重新进列表并被体检误报「补丁失效」
+        Remove-Item $app.Dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Remove-AppFromPicker $name
+    if ($script:Apps.Count -eq 0) {
+        [System.Windows.MessageBox]::Show("所有应用均已还原到最初状态。`n重新安装补丁：apply-patch.ps1 [-App <名称>]", '还原默认', 'OK', 'Information') | Out-Null
+        $window.Close()
+        return
+    }
+    $statusText.Text = "$name 已还原到最初状态：程序文件已从原版备份恢复、壁纸数据已清除。重新安装：apply-patch.ps1 -App $($job.Id)$extra"
+})
+(Ctrl 'BtnRestore').Add_Click({ Start-Restore })
 
 Update-ChipVisual
 Update-Library
