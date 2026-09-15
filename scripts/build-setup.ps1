@@ -4,7 +4,7 @@
 # 产物：
 #   release\ai-wallpaper-setup-v<版本>.exe   双击安装器（解压到 ~\.ai-wallpaper 并可选立即打补丁）
 #   release\ai-wallpaper-v<版本>.zip         便携包（解压后手动运行 install-all.ps1）
-param([string]$Version = '2.1.0')
+param([string]$Version = '1.0.0')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $dist = Join-Path $repo 'release'
