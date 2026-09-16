@@ -1,3 +1,4 @@
+/* zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署脚本是否为旧版 */
 /* ai-wallpaper — Codex 桌面版（OpenAI.Codex MSIX）壁纸层 + 界面透明化注入脚本
  *
  * 由 apply-patch.ps1 注入到 asar 的 webview\index.html（app://-/index.html 本地壳页面）。

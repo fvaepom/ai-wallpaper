@@ -1,4 +1,5 @@
-﻿# doubao-launcher.ps1 - Doubao desktop wallpaper launcher + CDP injection agent
+﻿# zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署代理是否为旧版
+# doubao-launcher.ps1 - Doubao desktop wallpaper launcher + CDP injection agent
 #
 # Doubao desktop is a Chromium shell (main window = chrome://doubao-chat/chat internal page),
 # so asar patching / content scripts do not apply. This script:

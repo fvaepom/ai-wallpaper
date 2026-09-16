@@ -1,3 +1,4 @@
+/* zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署脚本是否为旧版 */
 /* ai-wallpaper — 壁纸层 + 界面透明化注入脚本（Marvis 专用变体）
  *
  * 由 apply-patch.ps1 【内联】注入到腾讯 Marvis 主窗口页面（marvis-offline-page\using\index.html）。

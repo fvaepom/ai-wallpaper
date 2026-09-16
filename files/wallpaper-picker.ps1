@@ -67,6 +67,408 @@ foreach ($d in @($hub, $hubLib)) {
     if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
 }
 
+# ── 中英双语（界面语言）──────────────────────────────────
+# 语言存于 hub 的 language.txt（zh / en），缺省跟随 Windows 区域设置；
+# 切换入口是标题栏的「EN / 中」按钮，点一下整窗即时换语言并写回。
+$script:LangFile = Join-Path $hub 'language.txt'
+$script:Lang = 'zh'
+try {
+    if (Test-Path $script:LangFile) {
+        $v = (Get-Content $script:LangFile -Raw -ErrorAction Stop).Trim().ToLowerInvariant()
+        if ($v -eq 'en' -or $v -eq 'zh') { $script:Lang = $v }
+    } elseif ((Get-Culture).Name -notmatch '^zh') { $script:Lang = 'en' }
+} catch {}
+function Save-Language([string]$lang) {
+    $script:Lang = $lang
+    try { Set-Content -Path $script:LangFile -Value $lang -Encoding ASCII } catch {}
+}
+# 界面文案查表：T 'key'；带参数的写法是 (T 'key') -f a, b。
+# 表值里的 \n 两字符会被替换成真实换行（路径类取值注意避开 \n 序列）
+function T([string]$k) {
+    $s = [string]$script:I18N[$script:Lang][$k]
+    if (-not $s) { $s = [string]$script:I18N['zh'][$k] }
+    return $s.Replace('\n', "`n")
+}
+# 并列连接符：中文顿号、英文逗号（应用名列表都用它拼）
+function JoinL($list) { return @($list) -join (T 'listSep') }
+
+$script:I18N = @{
+  zh = @{
+    listSep            = '、'
+    winTitle           = 'AI 壁纸设置'
+    brand              = 'AI 壁纸'
+    brandSub           = '多应用动态壁纸管理'
+    langBtn            = 'EN'
+    tipLang            = '切换到英文界面 / Switch to English'
+    tabNow             = '当前壁纸'
+    tabLib             = '壁纸库'
+    tabAi              = 'AI 生成 · 豆包'
+    fixRecheck         = '重新检测'
+    fixOneKey          = '一键修复'
+    fixSummary         = '{0} 的壁纸补丁已失效（多为应用升级覆盖），点「一键修复」自动重打'
+    fixDetailItem      = '{0}：{1}'
+    noAppsMsg          = '未检测到可管理的应用（ZCode / WorkBuddy / OpenCode / Codex / Trae / AutoClaw / Marvis / Reasonix / DeepSeek Harness / PowerShell / CMD）。\n请先在对应应用上执行 apply-patch.ps1 安装壁纸补丁。'
+    healthAgentMissing = '壁纸代理缺失，重新运行 apply-patch.ps1 -App {0} 安装'
+    healthOfflineMissing = '离线页缓存不存在（启动一次 Marvis 后再试）'
+    healthOfflineLost  = '壁纸补丁已丢失（多半是 Marvis 更新了离线页缓存）'
+    healthWtReady      = 'Windows Terminal 设置文件已就绪'
+    healthWtMissing    = '未找到 Windows Terminal（商店版/预览版/散装版均未安装）'
+    healthNoDir        = '未找到安装目录（应用可能未安装或装在未知路径）'
+    healthNoHtml       = '主窗口 HTML 不存在（版本结构变了？）'
+    healthHtmlLost     = '壁纸补丁已丢失（多半是应用升级覆盖了文件）'
+    healthNoAsar       = 'resources\app.asar 不存在（版本结构变了？）'
+    healthAsarLost     = '壁纸补丁已丢失（多半是应用升级覆盖了 app.asar）'
+    healthScriptStale  = '补丁在，但注入脚本是旧版（不支持「界面不透明度」滑杆、custom.css 热生效等新功能），一键修复可升级'
+    nowViewLabel       = '当前查看'
+    nowComboTip        = '选择要查看的应用（⚠ = 壁纸补丁失效）'
+    emptyAurora        = '未设置壁纸 · 使用内置动态极光'
+    emptyApp           = '{0} 未设置壁纸 · 显示内置动态极光'
+    emptyTerm          = '{0} 未设置壁纸 · Windows Terminal 默认纯色背景'
+    badgeRotate        = '{0} · 自动轮换中 {1} 张 · {2} 换一张'
+    ivTextEvery        = '每 {0} 分钟'
+    ivTextLaunch       = '打开应用时'
+    nowRotating        = '{0} 正在自动轮换壁纸（预览为轮换集第 1 张，应用内显示其中一张）。本页操作只作用于 {0}。'
+    viewApp            = '正在查看：{0} 的当前壁纸 · 本页操作只作用于 {0}'
+    btnPick            = '为当前应用选择图片 / 视频...'
+    pickTitle          = '为 {0} 选择壁纸'
+    filterMedia        = '媒体文件'
+    filterVideo        = '视频'
+    filterImage        = '图片'
+    filterAll          = '所有文件'
+    btnClear           = '清除壁纸'
+    tipClear           = '清除当前应用的壁纸（未设置壁纸时应用内显示内置极光兜底）。要把应用恢复到打补丁前的原始状态请用「还原默认」'
+    btnOpenFolder      = '壁纸文件夹'
+    btnRestartBase     = '重启应用'
+    btnRestartApp      = '重启 {0}'
+    btnRestartHot      = '热生效 · 免重启'
+    btnRestore         = '还原默认'
+    tipRestore         = '把该应用恢复到打补丁前的最初状态：程序文件从原版备份还原、壁纸数据清除（终端目标为清除 Windows Terminal 背景图）'
+    alphaLabel         = '界面不透明度'
+    alphaOk            = '界面不透明度 {0}% 已应用到 {1}，几秒内自动生效（无需重启）。'
+    alphaFail          = '界面不透明度应用失败：{0}'
+    nowHint            = '操作只作用于当前查看的应用 · 支持拖入文件 · 新壁纸自动存入壁纸库'
+    targetLabel        = '目标应用'
+    tipTarget          = '选择壁纸库批量操作的目标应用'
+    swSync             = '同步设置'
+    tipSync            = '开：一套壁纸与轮换设置应用到所有勾选的应用；关：只改当前勾选的应用'
+    targetDone         = '完成'
+    targetAll          = '全部 {0} 个应用'
+    targetSome         = '已选 {0} / {1} 个应用'
+    targetHintSync     = '勾选要批量操作的应用，设置的壁纸与轮换会应用到所有勾选项'
+    targetHintSolo     = '独立模式：只修改选中的这一个应用'
+    rotTitle           = '自动更换壁纸'
+    rotHintBase        = '开启后每次打开应用自动换用下面勾选的下一张壁纸'
+    rotOnHint          = '已选 {0} 张 · 每次打开 {1} 自动换用下一张'
+    rotOnHintIv        = ' · 每 {0} 分钟再换一次'
+    rotOffHint         = '开启后每次打开 {0} 自动换用下面勾选的下一张壁纸'
+    intervalLabel      = '换片间隔'
+    iv0                = '仅打开时'
+    iv1                = '1分钟'
+    iv5                = '5分钟'
+    iv15               = '15分钟'
+    iv30               = '30分钟'
+    iv60               = '1小时'
+    rotOnNoItems       = '自动更换已开启，但还没有勾选任何壁纸——把想轮换的卡片点「轮换」勾上。'
+    rotOn              = '自动更换已开启（{0}，{1} 张）。每次打开应用自动换用下一张。'
+    rotOff             = '自动更换已关闭（{0}），将一直使用当前壁纸。'
+    ivSetEvery         = '轮换间隔：每 {0} 分钟自动换一张（应用运行期间也生效）'
+    ivSetLaunch        = '轮换间隔：仅在打开应用时换一张'
+    syncOn             = '同步模式：「壁纸库」页的设置将一致应用到 {0}。「当前壁纸」页仍按应用单独显示与设置。'
+    syncOff            = '独立模式：「壁纸库」页只修改 {0}。「当前壁纸」页仍按应用单独显示与设置。'
+    bootSync           = '同步模式：「壁纸库」的设置应用到 {0}。'
+    bootSolo           = '独立模式：「壁纸库」只修改 {0}。'
+    bootTail           = '「当前壁纸」页按应用单独显示，操作只作用于当前查看的应用。'
+    libEmpty           = '壁纸库为空 · 在「当前壁纸」页选择或拖入文件即可收藏'
+    libHint            = '点「应用」换壁纸（同步模式作用于所有勾选应用）· 勾「轮换」参与自动更换 · 视频悬停即预览'
+    cardRotate         = '轮换'
+    cardApply          = '应用'
+    cardDelete         = '删除'
+    aiKeyLabel         = '火山方舟 API Key'
+    tipAiKey           = '获取：火山引擎控制台 → 火山方舟 → API Key 管理。需在方舟开通豆包·图像生成（Seedream）模型。'
+    btnKeySave         = '保存 Key'
+    aiSaved            = '已保存 API Key 与生成选项（仅存本机 doubao.json）。'
+    aiPromptHint       = '描述你想要的壁纸… 例：暮色雪山与湖泊，金色晚霞倒映水面，电影感构图，超高清细节（Ctrl+Enter 快速生成）'
+    aiNeedPrompt       = '先写一句描述，例如：暮色雪山与湖泊，金色晚霞倒映水面，电影感构图，超高清细节'
+    aiNeedKey          = '请先填入火山方舟 API Key（火山引擎控制台 → 火山方舟 → API Key 管理，需开通豆包·图像生成模型），填好后点「保存 Key」。'
+    aiModelLabel       = '模型'
+    tipAiModel         = '火山方舟模型 ID（可直接编辑）。新模型发布后粘贴新模型 ID 或推理接入点 ep-xxx 即可。'
+    aiCountLabel       = '张数'
+    aiCnt1             = '1 张'
+    aiCnt2             = '2 张'
+    aiCnt4             = '4 张'
+    aiSizeLabel        = '尺寸'
+    aiSize2K           = '2K 自适应'
+    tipAiSize2K        = '模型按提示词内容自适应构图，约 2K 分辨率'
+    aiSize4K           = '4K 高清'
+    aiSizeW            = '2560×1600'
+    tipAiSizeW         = '与本机屏幕同比例（16:10）的固定尺寸'
+    aiSizeHD           = '2048×1152'
+    tipAiSizeHD        = '16:9 固定尺寸'
+    btnAiGen           = '✨ 生成壁纸'
+    aiGenBusy          = '生成中…'
+    aiProgress         = '正在请求豆包生成 1/{0} 张（每张约 10~30 秒）…'
+    aiHint             = '生成结果自动存入共享壁纸库（ai- 开头）· 点卡片「应用」立即换上（同步模式作用于所有勾选应用）· API Key 仅保存在本机 doubao.json'
+    aiNoImageData      = '响应中没有图片数据'
+    aiDone             = '已生成 {0} 张并自动收藏进壁纸库，点卡片「应用」立即换上。'
+    aiPartial          = '（部分失败：{0}）'
+    aiUnknownErr       = '未知错误'
+    aiFailed           = '生成失败：{0}'
+    normBusy           = '正在归一化视频（≤1080p/30fps，时长取决于视频大小）… 期间可继续使用选择器'
+    importBadType      = '不支持的文件类型：{0}'
+    importFail         = '导入失败（复制到壁纸库）：{0}'
+    importSetFail      = '已收藏到壁纸库，但 {0} 设置壁纸失败：{1}'
+    importOk           = '已为 {0} 设置并收藏：{1}\n{2} MB · 仅作用于 {0}；要批量应用到其他应用请到「壁纸库」页点「应用」'
+    applyDone          = '已应用到 {0}：{1}'
+    applyTermFail      = '注意：终端目标有失败 —— {0}'
+    applyPaused        = '（原轮换已暂停，开关可随时重新打开）'
+    errWriteMarker     = '写热切换标记失败：{0}'
+    errRebuildRotate   = '重建 {0} 轮换集失败（{1}）：{2}'
+    errIntervalMarker  = '写轮换间隔标记失败：{0}'
+    wtParseFail        = '无法解析 Windows Terminal settings.json（文件损坏？）'
+    wtWriteFail        = '写入 Windows Terminal 设置失败：{0}'
+    wtMissing          = '未找到 Windows Terminal，无法设置终端壁纸'
+    ffmpegMissing      = '终端壁纸仅支持图片/GIF：把视频转成 png 需要 ffmpeg（~\.ai-wallpaper\bin\），未找到'
+    frameFail          = '视频抽帧失败，无法生成终端壁纸（png）'
+    termOccupied       = '旧壁纸被占用且无法腾出路径，未更换（关闭相关终端标签后重试）'
+    appOccupied        = '旧壁纸被占用且无法腾出路径，未更换（关闭 {0} 后重试）'
+    cssWriteFail       = '写 {0} 的 custom.css 失败：{1}'
+    clearTermFail      = '清除 {0} 壁纸失败：{1}'
+    clearTermOk        = '已清除 {0} 的壁纸，Windows Terminal 恢复默认纯色背景。'
+    clearOk            = '已清除 {0} 的壁纸与轮换文件，将显示内置动态极光。（「壁纸库」页的轮换设置不受影响）'
+    boxNoRestartTitle  = '免重启'
+    boxNoRestart       = 'PowerShell / CMD 由 Windows Terminal 承载：换壁纸即时热生效，无需重启。'
+    boxInfoTitle       = '提示'
+    boxNotRunning      = '目标应用未在运行，直接启动即可。'
+    boxRestartTitle    = '重启应用'
+    boxRestartConfirm  = '将关闭并重新启动：{0}。未保存的会话内容不受影响（应用会自动恢复任务）。\n\n确认重启？'
+    repairTitle        = '一键修复'
+    repairBusy         = '修复正在进行中，请稍候…'
+    repairNone         = '未检测到失效的壁纸补丁，无需修复。'
+    repairNoTool       = '未找到修复工具链：\n{0}\n\n请重新执行一次 apply-patch.ps1，它会自动部署修复工具。'
+    repairPickDir      = '未能自动定位 {0} 的安装目录，请手动选择（含 resources 文件夹的那一层）'
+    repairSkipped      = '已跳过 {0}（未指定安装目录）。'
+    repairNeedClose    = '修复 {0} 需要先关闭它（未保存的会话内容不受影响，应用会自动恢复任务，修完可选择重新启动）。\n\n继续？'
+    repairProgress     = '正在修复：{0}（重打补丁约需几十秒，ZCode 需重新打包 asar）…'
+    repaired           = '已修复：{0}。'
+    msixWait           = '{0} 需管理员授权：请在弹出的 UAC/管理员窗口中确认，完成后自动检测（也可点「重新检测」）。'
+    repairFailHead     = '修复失败：'
+    repairFailItem     = '· {0}：{1}'
+    repairRestartAsk   = '修复完成：{0}。\n\n是否立即重新启动？'
+    restarted          = '已重新启动 {0}，窗口标题出现 ✦ 即壁纸生效。'
+    recheckNotFixed    = '{0} 仍未修复，可重试「一键修复」或查看管理员窗口里的报错。'
+    recheckOk          = '检测完成：所有应用的壁纸补丁均正常。'
+    recheckBad         = '检测完成：仍有 {0} 个应用补丁失效，可点「一键修复」。\n{1}'
+    restoreTitle       = '还原默认'
+    restoreBusy        = '还原正在进行中，请稍候…'
+    restoreTermAsk     = '将把 {0} 恢复到最初状态：\n· 清除写入 Windows Terminal 的壁纸与背景三键（已打开的终端窗口即时热生效）\n· 删除壁纸目录 {1}\n\n共享壁纸库不受影响。确认还原？'
+    restoreTermOk      = '{0} 已还原默认：Windows Terminal 背景已恢复纯色（已打开的窗口即时生效）。'
+    restoreFail        = '还原失败：{0}'
+    restoreCancel      = '已取消还原（未指定安装目录）。'
+    restoreAskHead     = '将把 {0} 恢复到打补丁前的最初状态：'
+    restoreNeedClose   = '· 需要先关闭正在运行的 {0}'
+    restoreAskFile     = '· 程序文件从原版备份（.zwp-backup）还原，壁纸注入全部移除'
+    restoreAskData     = '· 删除该应用的壁纸数据（壁纸目录 / 轮换 / refresh 标记 / 配置）'
+    restoreAskLib      = '· 共享壁纸库与其余应用不受影响；之后可随时重装补丁'
+    restoreCodexNote   = '· 「ChatGPT」壁纸启动快捷方式会移除（商店包此前已卸载，如需继续使用请从 Microsoft Store 重装）'
+    restoreConfirm     = '确认还原？'
+    restoreCloseFail   = '{0} 未能关闭（可能以管理员权限运行），请手动退出后重试还原。'
+    restoreProgress    = '正在还原 {0}（从原版备份恢复程序文件，约需几十秒）…'
+    restoreFailLog     = '还原 {0} 失败：{1}'
+    restoreNoRun       = '还原脚本未能运行'
+    restoreMediaOk     = '（已为 DeepSeek Harness 重新拉起共用媒体服务）'
+    restoreMediaFail   = '（注意：共用媒体服务未能自动恢复，DSH 壁纸媒体可能失效，可对其重跑一键修复）'
+    restoreAllDone     = '所有应用均已还原到最初状态。\n重新安装补丁：apply-patch.ps1 [-App <名称>]'
+    restoreDone        = '{0} 已还原到最初状态：程序文件已从原版备份恢复、壁纸数据已清除。重新安装：apply-patch.ps1 -App {1}{2}'
+  }
+  en = @{
+    listSep            = ', '
+    winTitle           = 'AI Wallpaper Settings'
+    brand              = 'AI Wallpaper'
+    brandSub           = 'Animated wallpapers for AI desktop apps'
+    langBtn            = '中'
+    tipLang            = '切换到中文界面 / Switch to Chinese'
+    tabNow             = 'Current wallpaper'
+    tabLib             = 'Library'
+    tabAi              = 'AI Generate · Doubao'
+    fixRecheck         = 'Recheck'
+    fixOneKey          = 'Repair'
+    fixSummary         = 'Wallpaper patch lost for {0} (usually an app update overwrote it). Click “Repair” to re-apply.'
+    fixDetailItem      = '{0}: {1}'
+    noAppsMsg          = 'No manageable apps detected (ZCode / WorkBuddy / OpenCode / Codex / Trae / AutoClaw / Marvis / Reasonix / DeepSeek Harness / PowerShell / CMD).\nRun apply-patch.ps1 against an app first to install the wallpaper patch.'
+    healthAgentMissing = 'Wallpaper agent missing — re-run apply-patch.ps1 -App {0} to install'
+    healthOfflineMissing = 'Offline-page cache not found (launch Marvis once, then retry)'
+    healthOfflineLost  = 'Wallpaper patch lost (Marvis most likely refreshed its offline-page cache)'
+    healthWtReady      = 'Windows Terminal settings file ready'
+    healthWtMissing    = 'Windows Terminal not found (Store, Preview and standalone installs all missing)'
+    healthNoDir        = 'Install directory not found (the app may not be installed, or it lives in an unknown path)'
+    healthNoHtml       = 'Main-window HTML missing (did the version layout change?)'
+    healthHtmlLost     = 'Wallpaper patch lost (an app update most likely overwrote the files)'
+    healthNoAsar       = 'resources\app.asar missing (did the version layout change?)'
+    healthAsarLost     = 'Wallpaper patch lost (an app update most likely overwrote app.asar)'
+    healthScriptStale  = 'Patch present but the injected script is outdated (no opacity slider / custom.css hot-reload). One-key repair upgrades it.'
+    nowViewLabel       = 'Viewing'
+    nowComboTip        = 'Choose the app to view (⚠ = wallpaper patch broken)'
+    emptyAurora        = 'No wallpaper · built-in aurora'
+    emptyApp           = '{0}: no wallpaper · built-in animated aurora'
+    emptyTerm          = '{0}: no wallpaper · Windows Terminal default solid background'
+    badgeRotate        = '{0} · auto-rotating {1} items · switches {2}'
+    ivTextEvery        = 'every {0} min'
+    ivTextLaunch       = 'at app launch'
+    nowRotating        = '{0} is auto-rotating wallpapers (preview shows the first of the set; the app displays one of them). Actions on this page affect {0} only.'
+    viewApp            = 'Viewing {0}''s current wallpaper · actions on this page affect {0} only'
+    btnPick            = 'Choose an image / video for the current app...'
+    pickTitle          = 'Choose a wallpaper for {0}'
+    filterMedia        = 'Media files'
+    filterVideo        = 'Videos'
+    filterImage        = 'Images'
+    filterAll          = 'All files'
+    btnClear           = 'Clear'
+    tipClear           = 'Remove this app''s wallpaper (the app falls back to the built-in aurora). To restore the app to its pre-patch state, use “Restore defaults”'
+    btnOpenFolder      = 'Folder'
+    btnRestartBase     = 'Restart app'
+    btnRestartApp      = 'Restart {0}'
+    btnRestartHot      = 'Hot apply · no restart'
+    btnRestore         = 'Restore defaults'
+    tipRestore         = 'Restore this app to its pre-patch state: program files come back from the original backup and wallpaper data is removed (terminal targets get the Windows Terminal background image cleared)'
+    alphaLabel         = 'UI opacity'
+    alphaOk            = 'UI opacity {0}% applied to {1}; it takes effect within seconds (no restart needed).'
+    alphaFail          = 'Failed to apply UI opacity: {0}'
+    nowHint            = 'Actions affect the app being viewed only · drag & drop supported · new wallpapers are saved to the library'
+    targetLabel        = 'Target apps'
+    tipTarget          = 'Pick the apps that library actions apply to'
+    swSync             = 'Sync settings'
+    tipSync            = 'On: one set of wallpaper and rotation settings applies to all checked apps. Off: only the currently checked apps are changed'
+    targetDone         = 'Done'
+    targetAll          = 'All {0} apps'
+    targetSome         = '{0} / {1} apps selected'
+    targetHintSync     = 'Tick the apps to manage in bulk; wallpaper and rotation settings will apply to every ticked app'
+    targetHintSolo     = 'Independent mode: only this one app is changed'
+    rotTitle           = 'Auto-rotate wallpaper'
+    rotHintBase        = 'When on, the next ticked wallpaper is applied at every app launch'
+    rotOnHint          = '{0} selected · the next one is applied each time {1} starts'
+    rotOnHintIv        = ' · switches again every {0} min'
+    rotOffHint         = 'When on, {0} gets the next ticked wallpaper at every launch'
+    intervalLabel      = 'Interval'
+    iv0                = 'On launch'
+    iv1                = '1 min'
+    iv5                = '5 min'
+    iv15               = '15 min'
+    iv30               = '30 min'
+    iv60               = '1 hour'
+    rotOnNoItems       = 'Auto-rotate is on but no wallpaper is ticked yet — tick the cards you want in the rotation with “Rotate”.'
+    rotOn              = 'Auto-rotate on ({0}, {1} items). The next wallpaper is applied at every launch.'
+    rotOff             = 'Auto-rotate off ({0}); the current wallpaper stays.'
+    ivSetEvery         = 'Interval: switch every {0} min (also while the app is running)'
+    ivSetLaunch        = 'Interval: switch only when the app opens'
+    syncOn             = 'Sync mode: Library settings apply to {0} uniformly. The Current page still shows and sets each app separately.'
+    syncOff            = 'Independent mode: the Library page changes {0} only. The Current page still shows and sets each app separately.'
+    bootSync           = 'Sync mode: Library settings apply to {0}. '
+    bootSolo           = 'Independent mode: the Library page changes {0} only. '
+    bootTail           = 'The Current page shows each app separately; actions affect the app being viewed only.'
+    libEmpty           = 'Library is empty · pick or drag files on the Current wallpaper page to add some'
+    libHint            = 'Click “Apply” to set a wallpaper (sync mode applies to all checked apps) · tick “Rotate” to include in auto-rotation · hover a video to preview'
+    cardRotate         = 'Rotate'
+    cardApply          = 'Apply'
+    cardDelete         = 'Delete'
+    aiKeyLabel         = 'Volcano Ark API Key'
+    tipAiKey           = 'Get it in the Volcano Engine console → Volcano Ark → API Key management. The Doubao image generation (Seedream) model must be enabled in Ark.'
+    btnKeySave         = 'Save Key'
+    aiSaved            = 'API key and generation options saved (stored locally in doubao.json).'
+    aiPromptHint       = 'Describe the wallpaper you want… e.g. dusk over snowy mountains and a lake, golden sunset mirrored on the water, cinematic composition, ultra-detailed (Ctrl+Enter to generate)'
+    aiNeedPrompt       = 'Write a description first, e.g. dusk over snowy mountains and a lake, golden sunset mirrored on the water, cinematic composition, ultra-detailed'
+    aiNeedKey          = 'Enter your Volcano Ark API key first (Volcano Engine console → Volcano Ark → API Key management; the Doubao image generation model must be enabled), then click “Save Key”.'
+    aiModelLabel       = 'Model'
+    tipAiModel         = 'Volcano Ark model ID (editable). Paste a new model ID or inference endpoint ep-xxx when new models ship.'
+    aiCountLabel       = 'Count'
+    aiCnt1             = '1 image'
+    aiCnt2             = '2 images'
+    aiCnt4             = '4 images'
+    aiSizeLabel        = 'Size'
+    aiSize2K           = '2K adaptive'
+    tipAiSize2K        = 'The model adapts the composition to the prompt, about 2K resolution'
+    aiSize4K           = '4K HD'
+    aiSizeW            = '2560×1600'
+    tipAiSizeW         = 'Fixed size matching this screen''s 16:10 aspect ratio'
+    aiSizeHD           = '2048×1152'
+    tipAiSizeHD        = 'Fixed 16:9 size'
+    btnAiGen           = '✨ Generate'
+    aiGenBusy          = 'Generating…'
+    aiProgress         = 'Asking Doubao for image 1/{0} (about 10-30 s each)…'
+    aiHint             = 'Results are saved to the shared library (ai- prefix) · click “Apply” on a card to use it (sync mode applies to all checked apps) · the API key is stored locally in doubao.json'
+    aiNoImageData      = 'No image data in the response'
+    aiDone             = '{0} image(s) generated and saved to the library — click “Apply” on a card to use one.'
+    aiPartial          = ' (partial failures: {0})'
+    aiUnknownErr       = 'Unknown error'
+    aiFailed           = 'Generation failed: {0}'
+    normBusy           = 'Normalizing video (≤1080p/30fps; duration depends on size)… you can keep using the picker meanwhile'
+    importBadType      = 'Unsupported file type: {0}'
+    importFail         = 'Import failed (copying to the library): {0}'
+    importSetFail      = 'Saved to the library, but setting it for {0} failed: {1}'
+    importOk           = 'Applied to and saved for {0}: {1}\n{2} MB · affects {0} only; to apply it to more apps, click “Apply” on the Library page'
+    applyDone          = 'Applied to {0}: {1}'
+    applyTermFail      = 'Note: some terminal targets failed — {0}'
+    applyPaused        = '(previous rotation paused; the switch can be re-enabled anytime)'
+    errWriteMarker     = 'Failed to write the hot-switch marker: {0}'
+    errRebuildRotate   = 'Failed to rebuild the rotation set for {0} ({1}): {2}'
+    errIntervalMarker  = 'Failed to write the rotation-interval marker: {0}'
+    wtParseFail        = 'Could not parse the Windows Terminal settings.json (corrupted?)'
+    wtWriteFail        = 'Failed to write Windows Terminal settings: {0}'
+    wtMissing          = 'Windows Terminal not found — cannot set a terminal wallpaper'
+    ffmpegMissing      = 'Terminal wallpapers support images/GIF only: converting a video to png needs ffmpeg (~\.ai-wallpaper\bin\), which was not found'
+    frameFail          = 'Frame extraction failed — cannot create the terminal wallpaper (png)'
+    termOccupied       = 'The old wallpaper is locked and the path could not be freed — not replaced (close the related terminal tabs and retry)'
+    appOccupied        = 'The old wallpaper is locked and the path could not be freed — not replaced (close {0} and retry)'
+    cssWriteFail       = 'Failed to write custom.css for {0}: {1}'
+    clearTermFail      = 'Failed to clear the {0} wallpaper: {1}'
+    clearTermOk        = '{0}''s wallpaper cleared; Windows Terminal is back to the default solid background.'
+    clearOk            = '{0}''s wallpaper and rotation files cleared; the built-in aurora will show. (Rotation settings on the Library page are untouched)'
+    boxNoRestartTitle  = 'No restart needed'
+    boxNoRestart       = 'PowerShell / CMD run inside Windows Terminal: wallpaper changes apply instantly — no restart needed.'
+    boxInfoTitle       = 'Notice'
+    boxNotRunning      = 'The target app is not running — just start it.'
+    boxRestartTitle    = 'Restart apps'
+    boxRestartConfirm  = 'These will be closed and restarted: {0}. Unsaved session content is unaffected (apps restore their tasks automatically).\n\nRestart now?'
+    repairTitle        = 'Repair'
+    repairBusy         = 'A repair is already running — please wait…'
+    repairNone         = 'No broken wallpaper patches detected — nothing to repair.'
+    repairNoTool       = 'Repair toolchain not found:\n{0}\n\nRun apply-patch.ps1 once more; it deploys the repair tools automatically.'
+    repairPickDir      = 'Couldn''t locate the {0} install directory automatically — pick it manually (the folder that contains resources)'
+    repairSkipped      = 'Skipped {0} (no install directory given).'
+    repairNeedClose    = 'Repairing {0} requires closing it first (unsaved session content is unaffected; apps restore their tasks automatically, and you can relaunch after the repair).\n\nContinue?'
+    repairProgress     = 'Repairing {0} (re-patching takes tens of seconds; ZCode needs an asar rebuild)…'
+    repaired           = 'Repaired: {0}.'
+    msixWait           = '{0} needs admin approval: confirm it in the UAC/admin window; detection continues afterwards (or click “Recheck”).'
+    repairFailHead     = 'Repair failed:'
+    repairFailItem     = '· {0}: {1}'
+    repairRestartAsk   = 'Repair finished: {0}.\n\nRestart now?'
+    restarted          = 'Restarted {0} — the wallpaper is active once ✦ appears in the window title.'
+    recheckNotFixed    = '{0} still not repaired — retry “Repair” or check the error output in the admin window.'
+    recheckOk          = 'Check complete: every app''s wallpaper patch is healthy.'
+    recheckBad         = 'Check complete: {0} app(s) still broken — click “Repair”.\n{1}'
+    restoreTitle       = 'Restore defaults'
+    restoreBusy        = 'A restore is already running — please wait…'
+    restoreTermAsk     = 'This restores {0} to its initial state:\n· clears the wallpaper and background keys written to Windows Terminal (open terminal windows update instantly)\n· deletes the wallpaper directory {1}\n\nThe shared library is unaffected. Restore?'
+    restoreTermOk      = '{0} restored: the Windows Terminal background is back to a solid color (open windows update instantly).'
+    restoreFail        = 'Restore failed: {0}'
+    restoreCancel      = 'Restore cancelled (no install directory given).'
+    restoreAskHead     = 'This restores {0} to its pre-patch state:'
+    restoreNeedClose   = '· The running {0} must be closed first'
+    restoreAskFile     = '· Program files are restored from the original backup (.zwp-backup); wallpaper injection is fully removed'
+    restoreAskData     = '· The app''s wallpaper data is deleted (wallpaper dir / rotation / refresh markers / config)'
+    restoreAskLib      = '· The shared library and other apps are untouched; the patch can be reinstalled anytime'
+    restoreCodexNote   = '· The “ChatGPT” wallpaper launcher shortcut is removed (the Store package was already uninstalled; reinstall from Microsoft Store if needed)'
+    restoreConfirm     = 'Restore to defaults?'
+    restoreCloseFail   = '{0} could not be closed (it may be running as admin) — quit it manually and retry.'
+    restoreProgress    = 'Restoring {0} (program files from the original backup; takes tens of seconds)…'
+    restoreFailLog     = 'Restoring {0} failed: {1}'
+    restoreNoRun       = 'The restore script did not run'
+    restoreMediaOk     = ' (the shared media service for DeepSeek Harness was restarted)'
+    restoreMediaFail   = ' (note: the shared media service could not be restarted; DSH wallpapers may break — run Repair for it)'
+    restoreAllDone     = 'All apps have been restored to their initial state.\nTo reinstall: apply-patch.ps1 [-App <name>]'
+    restoreDone        = '{0} restored: program files recovered from the original backup and wallpaper data cleared. Reinstall with: apply-patch.ps1 -App {1}{2}'
+  }
+}
+
 $AllApps = @(
     @{ Name = 'ZCode';     Dir = (Join-Path $env:USERPROFILE '.zcode\wallpaper');     Proc = 'ZCode';
        ExeCandidates = @('F:\Program files\ZCode\ZCode.exe', 'C:\Program files\ZCode\ZCode.exe');
@@ -160,10 +562,7 @@ if ($wtSettingsPath) {
 }
 $Apps = @($AllApps | Where-Object { Test-Path $_.Dir })
 if ($Apps.Count -eq 0) {
-    [System.Windows.MessageBox]::Show(
-            '未检测到可管理的应用（ZCode / WorkBuddy / OpenCode / Codex / Trae / AutoClaw / Marvis / Reasonix / DeepSeek Harness / PowerShell / CMD）。' + [char]10 +
-        '请先在对应应用上执行 apply-patch.ps1 安装壁纸补丁。',
-        'AI 壁纸设置', 'OK', 'Warning') | Out-Null
+    [System.Windows.MessageBox]::Show((T 'noAppsMsg'), (T 'winTitle'), 'OK', 'Warning') | Out-Null
     exit
 }
 $AppMap = @{}
@@ -282,43 +681,86 @@ function Find-InstallDir($app) {
     return $null
 }
 
-# 单应用健康状态：Dir=识别到的安装目录（$null=没找到）；Broken=补丁丢失可修复
+# 已部署注入脚本是否含版本标记 zwp-ver:（无标记 = 旧版初版脚本，不支持 --ocwp-ui-alpha 滑杆等）。
+# 返回 $true=current / $false=旧版；读不到（结构异常等）一律 $true，避免把"查不了"误报成旧版
+function Test-TextHasVer([string]$path) {
+    try { return ([IO.File]::ReadAllText($path).Contains('zwp-ver:2')) } catch { return $true }
+}
+function Test-AsarScriptCurrent([string]$asar) {
+    # 从 asar 头部 JSON 定位 out*/oc-wallpaper.js 的 offset（文件名在归档内唯一），读前 160 字节查标记
+    try {
+        $fs = [IO.File]::OpenRead($asar)
+        try {
+            $br = New-Object IO.BinaryReader($fs)
+            $null = $br.ReadUInt32()          # 头部长度字段（恒为 4）
+            $pickleSize = $br.ReadUInt32()    # 头部 pickle 总大小 → 内容区起点 = 8 + pickleSize
+            $jsonLen = $br.ReadUInt32()       # 头部 JSON 字节数
+            $json = [Text.Encoding]::ASCII.GetString($br.ReadBytes($jsonLen))
+            $m = [regex]::Match($json, '"oc-wallpaper\.js":\{.{0,400}?"offset":\s*"(\d+)"')
+            if (-not $m.Success) { return $true }   # 归档里没有该文件 → 不是"旧版注入"的形态
+            $fs.Position = 8 + [int64]$pickleSize + [int64]$m.Groups[1].Value
+            $buf = New-Object byte[] 160
+            $null = $fs.Read($buf, 0, 160)
+            return ([Text.Encoding]::ASCII.GetString($buf).Contains('zwp-ver:2'))
+        } finally { $fs.Close() }
+    } catch { return $true }
+}
+
+# 单应用健康状态：Dir=识别到的安装目录（$null=没找到）；Broken=补丁丢失/脚本过旧，可一键修复
 function Get-AppHealth([string]$name) {
     $app = $AppMap[$name]
-    $h = [pscustomobject]@{ Dir = $null; Broken = $false; Detail = '' }
+    $h = [pscustomobject]@{ Dir = $null; Broken = $false; Detail = ''; Stale = $false }
     if ($app.Agent) {
         # 代理型应用（Doubao）：补丁 = hub 里的启动器/代理文件，无 asar 可查
-        if ($app.Launcher -and (Test-Path $app.Launcher)) { return $h }
-        $h.Broken = $true; $h.Detail = "壁纸代理缺失，重新运行 apply-patch.ps1 -App $name 安装"
+        if ($app.Launcher -and (Test-Path $app.Launcher)) {
+            $ps1 = [IO.Path]::ChangeExtension($app.Launcher, '.ps1')
+            if (-not (Test-TextHasVer $ps1)) { $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale') }
+            return $h
+        }
+        $h.Broken = $true; $h.Detail = (T 'healthAgentMissing') -f $name
         return $h
     }
     if ($app.ProbeFile) {
         # Marvis：补丁探测点 = Roaming 离线页 index.html（内联脚本被 Marvis 更新缓存覆盖即失效）
-        if (-not (Test-Path $app.ProbeFile)) { $h.Detail = '离线页缓存不存在（启动一次 Marvis 后再试）'; return $h }
+        if (-not (Test-Path $app.ProbeFile)) { $h.Detail = (T 'healthOfflineMissing'); return $h }
         if ([IO.File]::ReadAllText($app.ProbeFile) -notmatch 'oc-wallpaper') {
-            $h.Broken = $true; $h.Detail = '壁纸补丁已丢失（多半是 Marvis 更新了离线页缓存）'
+            $h.Broken = $true; $h.Detail = (T 'healthOfflineLost')
+        } elseif (-not (Test-TextHasVer $app.ProbeFile)) {
+            $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale')
         }
         return $h
     }
     if ($app.Terminal) {
         # 终端目标（PowerShell / CMD）零补丁：只读写 WT 的 settings.json，没有会失效的补丁文件
-        $h.Detail = if ($wtSettingsPath) { 'Windows Terminal 设置文件已就绪' } else { '未找到 Windows Terminal（商店版/预览版/散装版均未安装）' }
+        $h.Detail = if ($wtSettingsPath) { (T 'healthWtReady') } else { (T 'healthWtMissing') }
         return $h
     }
     $h.Dir = Find-InstallDir $app
-    if (-not $h.Dir) { $h.Detail = '未找到安装目录（应用可能未安装或装在未知路径）'; return $h }
+    if (-not $h.Dir) { $h.Detail = (T 'healthNoDir'); return $h }
     if ($app.ProbeRel) {
         $htmlPath = Join-Path (Join-Path $h.Dir 'resources') $app.ProbeRel
-        if (-not (Test-Path $htmlPath)) { $h.Detail = '主窗口 HTML 不存在（版本结构变了？）'; return $h }
+        if (-not (Test-Path $htmlPath)) { $h.Detail = (T 'healthNoHtml'); return $h }
         if ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') {
-            $h.Broken = $true; $h.Detail = '壁纸补丁已丢失（多半是应用升级覆盖了文件）'
+            $h.Broken = $true; $h.Detail = (T 'healthHtmlLost')
+            return $h
+        }
+        # 外链注入脚本（Trae/Reasonix：oc-wallpaper*.js 与 html 同目录）→ 查脚本本体；
+        # 内联注入（DSH）→ html 全文即脚本，上面 ReadAllText 已含全文，直接查
+        $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($js) {
+            if (-not (Test-TextHasVer $js.FullName)) { $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale') }
+        } elseif (-not (Test-TextHasVer $htmlPath)) {
+            $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale')
         }
         return $h
     }
     $asar = Join-Path $h.Dir 'resources\app.asar'
-    if (-not (Test-Path $asar)) { $h.Detail = 'resources\app.asar 不存在（版本结构变了？）'; return $h }
+    if (-not (Test-Path $asar)) { $h.Detail = (T 'healthNoAsar'); return $h }
     if (-not (Test-AsarPatched $asar)) {
-        $h.Broken = $true; $h.Detail = '壁纸补丁已丢失（多半是应用升级覆盖了 app.asar）'
+        $h.Broken = $true; $h.Detail = (T 'healthAsarLost')
+    } elseif (-not (Test-AsarScriptCurrent $asar)) {
+        $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale')
     }
     return $h
 }
@@ -345,8 +787,8 @@ function Update-HealthVisuals {
     } else {
         # 条上只放一行摘要；逐应用明细放 ToolTip（条内换行会把页面底部内容挤出窗口）
         $fixText = Ctrl 'FixText'
-        $detail = (($broken | ForEach-Object { "$_ ：$($script:Health[$_].Detail)" }) -join "`n")
-        $fixText.Text = "$($broken -join '、') 的壁纸补丁已失效（多为应用升级覆盖），点「一键修复」自动重打"
+        $detail = (($broken | ForEach-Object { (T 'fixDetailItem') -f $_, $script:Health[$_].Detail }) -join "`n")
+        $fixText.Text = (T 'fixSummary') -f (JoinL $broken)
         $fixText.ToolTip = $detail
         $bar.Visibility = 'Visible'
     }
@@ -505,7 +947,7 @@ function Touch-LiveMarker([string]$appName) {
     try { Set-Content -Path $counterPath -Value $c -Encoding ASCII } catch {}
     $gif = [Convert]::FromBase64String('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
     try { [IO.File]::WriteAllBytes((Join-Path $rot ("refresh-" + (($c % 3) + 1) + ".gif")), $gif) }
-    catch { $script:WpError = '写热切换标记失败：' + $_.Exception.Message }
+    catch { $script:WpError = (T 'errWriteMarker') -f $_.Exception.Message }
 }
 
 function Rebuild-Rotate([string]$appName, $cfg) {
@@ -529,13 +971,13 @@ function Rebuild-Rotate([string]$appName, $cfg) {
             $src = Resolve-LibFile $appName $it.file
             if ($src) {
                 try { Copy-Item $src (Join-Path $rot ("rotate-$n" + [IO.Path]::GetExtension($it.file))) -Force -ErrorAction Stop; $n++ }
-                catch { $script:WpError = "重建 $appName 轮换集失败（$($it.file)）：" + $_.Exception.Message }
+                catch { $script:WpError = (T 'errRebuildRotate') -f $appName, $it.file, $_.Exception.Message }
             }
         }
         if ($cfg.interval -gt 0) {
             $gif = [Convert]::FromBase64String('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
             try { [IO.File]::WriteAllBytes((Join-Path $rot "interval-$($cfg.interval).gif"), $gif) }
-            catch { $script:WpError = '写轮换间隔标记失败：' + $_.Exception.Message }
+            catch { $script:WpError = (T 'errIntervalMarker') -f $_.Exception.Message }
         }
     }
     Touch-LiveMarker $appName
@@ -546,7 +988,7 @@ function Get-Targets {
     if ($script:Sync) { return @($script:Checked) } else { return @($script:Active) }
 }
 function TargetsText {
-    if ($script:Sync) { return ($script:Checked -join '、') }
+    if ($script:Sync) { return (JoinL $script:Checked) }
     return $script:Active
 }
 # 某应用当前生效的轮换配置：被同步勾选 → 中心配置；否则该应用自己的配置
@@ -584,11 +1026,11 @@ function Commit-Cfg($cfg) {
     }
 }
 
-# ── XAML 界面 ────────────────────────────────────────────
-[xml]$xaml = @'
+# ── XAML 界面（文案占位符按当前语言注入，见顶部 I18N 表）───
+$xamlRaw = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="AI 壁纸设置" Height="727" Width="560"
+        Title="@@winTitle@@" Height="727" Width="560"
         WindowStartupLocation="CenterScreen" WindowStyle="None"
         AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" Topmost="True" FontFamily="Microsoft YaHei UI"
@@ -1022,11 +1464,12 @@ function Commit-Cfg($cfg) {
       <Grid Grid.Row="0" Background="Transparent" x:Name="DragBar">
         <StackPanel Orientation="Horizontal" Margin="20,0,0,0" VerticalAlignment="Center">
           <Ellipse Width="9" Height="9" Fill="#3B82F6" VerticalAlignment="Center"/>
-          <TextBlock Text="AI 壁纸" Foreground="#ECECEC" FontSize="14.5" FontWeight="SemiBold"
+          <TextBlock x:Name="BrandText" Text="@@brand@@" Foreground="#ECECEC" FontSize="14.5" FontWeight="SemiBold"
                      Margin="10,0,0,0" VerticalAlignment="Center"/>
-          <TextBlock Text="多应用动态壁纸管理" Foreground="#5B6172" FontSize="12" Margin="8,2,0,0" VerticalAlignment="Center"/>
+          <TextBlock x:Name="BrandSub" Text="@@brandSub@@" Foreground="#5B6172" FontSize="12" Margin="8,2,0,0" VerticalAlignment="Center"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,10,0">
+          <Button x:Name="BtnLang" Style="{StaticResource CaptionBtn}" Content="@@langBtn@@" ToolTip="@@tipLang@@"/>
           <Button x:Name="BtnMin" Style="{StaticResource CaptionBtn}" Content="─"/>
           <Button x:Name="BtnClose" Style="{StaticResource CaptionBtn}" Content="✕"/>
         </StackPanel>
@@ -1041,11 +1484,11 @@ function Commit-Cfg($cfg) {
 
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
           <RadioButton x:Name="TabNow" Style="{StaticResource TabPill}" GroupName="tabs"
-                       Content="当前壁纸" IsChecked="True"/>
+                       Content="@@tabNow@@" IsChecked="True"/>
           <RadioButton x:Name="TabLib" Style="{StaticResource TabPill}" GroupName="tabs"
-                       Content="壁纸库"/>
+                       Content="@@tabLib@@"/>
           <RadioButton x:Name="TabAi" Style="{StaticResource TabPill}" GroupName="tabs"
-                       Content="AI 生成 · 豆包"/>
+                       Content="@@tabAi@@"/>
         </StackPanel>
 
         <!-- 补丁失效警告条：应用升级覆盖补丁后出现，一键重装（自动识别安装目录）。
@@ -1064,9 +1507,9 @@ function Commit-Cfg($cfg) {
                          VerticalAlignment="Center"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
-              <Button x:Name="BtnRecheck" Style="{StaticResource BtnMini}" Content="重新检测"
+              <Button x:Name="BtnRecheck" Style="{StaticResource BtnMini}" Content="@@fixRecheck@@"
                       Height="30" FontSize="12" Padding="12,0" VerticalAlignment="Center"/>
-              <Button x:Name="BtnFix" Style="{StaticResource BtnPrimary}" Content="一键修复"
+              <Button x:Name="BtnFix" Style="{StaticResource BtnPrimary}" Content="@@fixOneKey@@"
                       Height="30" FontSize="12.5" Padding="14,0" Margin="8,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </Grid>
@@ -1087,14 +1530,14 @@ function Commit-Cfg($cfg) {
                   <ColumnDefinition Width="Auto"/>
                   <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="当前查看" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBlock x:Name="NowViewLabel" Text="@@nowViewLabel@@" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <!-- SelectedValuePath 指向 Tag（应用名）：默认 SelectedValue 是 ComboBoxItem 自身，
                      字符串化后是 "System.Windows.Controls.ComboBoxItem: xxx" 英文类型名，
                      会经 SelectionChanged 污染 $script:NowApp，把「重启 …」按钮等文案全带歪 -->
                 <ComboBox Grid.Column="1" x:Name="NowAppCombo" Width="240" Height="32" FontSize="12"
                           Style="{StaticResource ComboDark}"
                           SelectedValuePath="Tag"
-                          VerticalContentAlignment="Center" ToolTip="选择要查看的应用（⚠ = 壁纸补丁失效）"/>
+                          VerticalContentAlignment="Center" ToolTip="@@nowComboTip@@"/>
               </Grid>
             </Border>
             <Border Grid.Row="1" CornerRadius="10" Background="#0B0D12" Height="293"
@@ -1123,7 +1566,7 @@ function Commit-Cfg($cfg) {
                       </Ellipse.Fill>
                     </Ellipse>
                   </Grid>
-                  <TextBlock x:Name="EmptyText" Text="未设置壁纸 · 使用内置动态极光" Foreground="#6B7183" FontSize="12.5"
+                  <TextBlock x:Name="EmptyText" Text="@@emptyAurora@@" Foreground="#6B7183" FontSize="12.5"
                              HorizontalAlignment="Center" Margin="0,10,0,0"/>
                 </StackPanel>
                 <Border x:Name="Badge" CornerRadius="6" Background="#CC101218" Padding="10,5"
@@ -1133,14 +1576,14 @@ function Commit-Cfg($cfg) {
               </Grid>
             </Border>
             <StackPanel Grid.Row="2" Margin="0,12,0,0">
-              <Button x:Name="BtnPick" Style="{StaticResource BtnPrimary}" Content="为当前应用选择图片 / 视频..."/>
+              <Button x:Name="BtnPick" Style="{StaticResource BtnPrimary}" Content="@@btnPick@@"/>
               <UniformGrid Columns="4" Margin="0,10,0,0">
-                <Button x:Name="BtnClear" Style="{StaticResource BtnGhost}" Content="清除壁纸" Margin="0,0,4,0"
-                        ToolTip="清除当前应用的壁纸（未设置壁纸时应用内显示内置极光兜底）。要把应用恢复到打补丁前的原始状态请用「还原默认」"/>
-                <Button x:Name="BtnOpen"  Style="{StaticResource BtnGhost}" Content="壁纸文件夹" Margin="4,0"/>
-                <Button x:Name="BtnRestart" Style="{StaticResource BtnGhost}" Content="重启应用" Margin="4,0"/>
-                <Button x:Name="BtnRestore" Style="{StaticResource BtnGhost}" Content="还原默认" Margin="4,0,0,0"
-                        ToolTip="把该应用恢复到打补丁前的最初状态：程序文件从原版备份还原、壁纸数据清除（终端目标为清除 Windows Terminal 背景图）"/>
+                <Button x:Name="BtnClear" Style="{StaticResource BtnGhost}" Content="@@btnClear@@" Margin="0,0,4,0"
+                        ToolTip="@@tipClear@@"/>
+                <Button x:Name="BtnOpen"  Style="{StaticResource BtnGhost}" Content="@@btnOpenFolder@@" Margin="4,0"/>
+                <Button x:Name="BtnRestart" Style="{StaticResource BtnGhost}" Content="@@btnRestartBase@@" Margin="4,0"/>
+                <Button x:Name="BtnRestore" Style="{StaticResource BtnGhost}" Content="@@btnRestore@@" Margin="4,0,0,0"
+                        ToolTip="@@tipRestore@@"/>
               </UniformGrid>
               <Grid Margin="2,12,0,0">
                 <Grid.ColumnDefinitions>
@@ -1148,7 +1591,7 @@ function Commit-Cfg($cfg) {
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="界面不透明度" Foreground="#8A90A0" FontSize="11.5"
+                <TextBlock Grid.Column="0" x:Name="AlphaLabel" Text="@@alphaLabel@@" Foreground="#8A90A0" FontSize="11.5"
                            VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <Slider Grid.Column="1" x:Name="UiAlpha" Style="{StaticResource SliderDark}" Minimum="0" Maximum="100" Value="55"
                         VerticalAlignment="Center" IsMoveToPointEnabled="True" IsSnapToTickEnabled="True" TickFrequency="5"
@@ -1157,8 +1600,8 @@ function Commit-Cfg($cfg) {
                            Width="38" TextAlignment="Right" VerticalAlignment="Center"/>
               </Grid>
               <TextBlock x:Name="StatusText" Foreground="#8A90A0" FontSize="12" Margin="2,10,0,0" TextWrapping="Wrap"/>
-              <TextBlock Foreground="#4E5464" FontSize="11" Margin="2,6,0,0"
-                         Text="操作只作用于当前查看的应用 · 支持拖入文件 · 新壁纸自动存入壁纸库"/>
+              <TextBlock x:Name="NowHint" Foreground="#4E5464" FontSize="11" Margin="2,6,0,0"
+                         Text="@@nowHint@@"/>
             </StackPanel>
           </Grid>
 
@@ -1180,11 +1623,11 @@ function Commit-Cfg($cfg) {
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="目标应用" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBlock x:Name="TargetLabel" Text="@@targetLabel@@" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <ToggleButton Grid.Column="1" x:Name="AppTargetBtn" Style="{StaticResource TargetSelect}" Margin="0,0,10,0"
-                              ToolTip="选择壁纸库批量操作的目标应用"/>
-                <CheckBox Grid.Column="2" x:Name="SwSync" Style="{StaticResource Switch}" Content="同步设置"
-                          VerticalAlignment="Center" ToolTip="开：一套壁纸与轮换设置应用到所有勾选的应用；关：只改当前勾选的应用"/>
+                              ToolTip="@@tipTarget@@"/>
+                <CheckBox Grid.Column="2" x:Name="SwSync" Style="{StaticResource Switch}" Content="@@swSync@@"
+                          VerticalAlignment="Center" ToolTip="@@tipSync@@"/>
                 <Popup x:Name="AppTargetPopup" StaysOpen="False" AllowsTransparency="True" Focusable="False"
                        PopupAnimation="Fade" PlacementTarget="{Binding ElementName=AppTargetBtn}" Placement="Bottom">
                   <Border Background="#14161D" BorderBrush="#3A4050" BorderThickness="1" CornerRadius="10"
@@ -1194,7 +1637,7 @@ function Commit-Cfg($cfg) {
                       <Grid Margin="0,10,0,0">
                         <TextBlock x:Name="AppTargetHint" Foreground="#6B7183" FontSize="10.5"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        <Button x:Name="BtnTargetDone" Style="{StaticResource BtnMini}" Content="完成"
+                        <Button x:Name="BtnTargetDone" Style="{StaticResource BtnMini}" Content="@@targetDone@@"
                                 Height="24" Padding="14,0" HorizontalAlignment="Right"/>
                       </Grid>
                     </StackPanel>
@@ -1210,30 +1653,30 @@ function Commit-Cfg($cfg) {
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                  <TextBlock Text="自动更换壁纸" Foreground="#ECECEC" FontSize="12.5"/>
-                  <TextBlock x:Name="RotHint" Text="开启后每次打开应用自动换用下面勾选的下一张壁纸" Foreground="#6B7183" FontSize="10.5" Margin="0,2,0,0"/>
+                  <TextBlock x:Name="RotTitle" Text="@@rotTitle@@" Foreground="#ECECEC" FontSize="12.5"/>
+                  <TextBlock x:Name="RotHint" Text="@@rotHintBase@@" Foreground="#6B7183" FontSize="10.5" Margin="0,2,0,0"/>
                 </StackPanel>
                 <CheckBox Grid.Column="1" x:Name="SwRotate" Style="{StaticResource Switch}" VerticalAlignment="Center"/>
               </Grid>
             </Border>
             <StackPanel Grid.Row="2" x:Name="IntervalRow" Orientation="Horizontal" Margin="4,0,0,10" Visibility="Collapsed">
-              <TextBlock Text="换片间隔" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
-              <RadioButton x:Name="Iv0"  Style="{StaticResource IvPill}" GroupName="iv" Content="仅打开时" Tag="0" IsChecked="True"/>
-              <RadioButton x:Name="Iv1"  Style="{StaticResource IvPill}" GroupName="iv" Content="1分钟" Tag="1"/>
-              <RadioButton x:Name="Iv5"  Style="{StaticResource IvPill}" GroupName="iv" Content="5分钟" Tag="5"/>
-              <RadioButton x:Name="Iv15" Style="{StaticResource IvPill}" GroupName="iv" Content="15分钟" Tag="15"/>
-              <RadioButton x:Name="Iv30" Style="{StaticResource IvPill}" GroupName="iv" Content="30分钟" Tag="30"/>
-              <RadioButton x:Name="Iv60" Style="{StaticResource IvPill}" GroupName="iv" Content="1小时" Tag="60"/>
+              <TextBlock x:Name="IntervalLabel" Text="@@intervalLabel@@" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
+              <RadioButton x:Name="Iv0"  Style="{StaticResource IvPill}" GroupName="iv" Content="@@iv0@@" Tag="0" IsChecked="True"/>
+              <RadioButton x:Name="Iv1"  Style="{StaticResource IvPill}" GroupName="iv" Content="@@iv1@@" Tag="1"/>
+              <RadioButton x:Name="Iv5"  Style="{StaticResource IvPill}" GroupName="iv" Content="@@iv5@@" Tag="5"/>
+              <RadioButton x:Name="Iv15" Style="{StaticResource IvPill}" GroupName="iv" Content="@@iv15@@" Tag="15"/>
+              <RadioButton x:Name="Iv30" Style="{StaticResource IvPill}" GroupName="iv" Content="@@iv30@@" Tag="30"/>
+              <RadioButton x:Name="Iv60" Style="{StaticResource IvPill}" GroupName="iv" Content="@@iv60@@" Tag="60"/>
             </StackPanel>
             <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
               <StackPanel>
                 <WrapPanel x:Name="LibPanel"/>
-                <TextBlock x:Name="LibEmpty" Text="壁纸库为空 · 在「当前壁纸」页选择或拖入文件即可收藏"
+                <TextBlock x:Name="LibEmpty" Text="@@libEmpty@@"
                            Foreground="#6B7183" FontSize="12" HorizontalAlignment="Center" Margin="0,40,0,0"/>
               </StackPanel>
             </ScrollViewer>
-            <TextBlock Grid.Row="4" Foreground="#4E5464" FontSize="10.5" Margin="2,8,0,0"
-                       Text="点「应用」换壁纸（同步模式作用于所有勾选应用）· 勾「轮换」参与自动更换 · 视频悬停即预览"/>
+            <TextBlock Grid.Row="4" x:Name="LibHint" Foreground="#4E5464" FontSize="10.5" Margin="2,8,0,0"
+                       Text="@@libHint@@"/>
           </Grid>
 
           <!-- 页 3：AI 生成（豆包 Seedream 文生图，火山方舟 images/generations） -->
@@ -1255,12 +1698,12 @@ function Commit-Cfg($cfg) {
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="火山方舟 API Key" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBlock x:Name="AiKeyLabel" Text="@@aiKeyLabel@@" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <TextBox Grid.Column="1" x:Name="AiKey" Height="28" VerticalContentAlignment="Center"
                          Background="#0B0D12" Foreground="#ECECEC" BorderBrush="#242835" CaretBrush="#ECECEC"
                          Padding="8,0" FontSize="12"
-                         ToolTip="获取：火山引擎控制台 → 火山方舟 → API Key 管理。需在方舟开通豆包·图像生成（Seedream）模型。"/>
-                <Button Grid.Column="2" x:Name="BtnAiKeySave" Style="{StaticResource BtnMini}" Content="保存 Key"
+                         ToolTip="@@tipAiKey@@"/>
+                <Button Grid.Column="2" x:Name="BtnAiKeySave" Style="{StaticResource BtnMini}" Content="@@btnKeySave@@"
                         Height="28" Padding="12,0" Margin="8,0,0,0"/>
               </Grid>
             </Border>
@@ -1271,39 +1714,39 @@ function Commit-Cfg($cfg) {
                          Padding="12,10" Height="82" VerticalScrollBarVisibility="Auto"/>
                 <TextBlock x:Name="AiPromptHint" Foreground="#5B6172" FontSize="13" Margin="14,11,14,0"
                            IsHitTestVisible="False" TextTrimming="CharacterEllipsis"
-                           Text="描述你想要的壁纸… 例：暮色雪山与湖泊，金色晚霞倒映水面，电影感构图，超高清细节（Ctrl+Enter 快速生成）"/>
+                           Text="@@aiPromptHint@@"/>
               </Grid>
             </Border>
             <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="2,0,0,8">
-              <TextBlock Text="模型" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBlock x:Name="AiModelLabel" Text="@@aiModelLabel@@" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
               <ComboBox x:Name="AiModel" Width="228" Height="28" IsEditable="True" FontSize="11.5"
                         VerticalContentAlignment="Center"
-                        ToolTip="火山方舟模型 ID（可直接编辑）。新模型发布后粘贴新模型 ID 或推理接入点 ep-xxx 即可。"/>
-              <TextBlock Text="张数" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="14,0,8,0"/>
-              <RadioButton x:Name="AiCnt1" Style="{StaticResource IvPill}" GroupName="aicnt" Content="1 张" Tag="1" IsChecked="True"/>
-              <RadioButton x:Name="AiCnt2" Style="{StaticResource IvPill}" GroupName="aicnt" Content="2 张" Tag="2"/>
-              <RadioButton x:Name="AiCnt4" Style="{StaticResource IvPill}" GroupName="aicnt" Content="4 张" Tag="4"/>
+                        ToolTip="@@tipAiModel@@"/>
+              <TextBlock x:Name="AiCountLabel" Text="@@aiCountLabel@@" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="14,0,8,0"/>
+              <RadioButton x:Name="AiCnt1" Style="{StaticResource IvPill}" GroupName="aicnt" Content="@@aiCnt1@@" Tag="1" IsChecked="True"/>
+              <RadioButton x:Name="AiCnt2" Style="{StaticResource IvPill}" GroupName="aicnt" Content="@@aiCnt2@@" Tag="2"/>
+              <RadioButton x:Name="AiCnt4" Style="{StaticResource IvPill}" GroupName="aicnt" Content="@@aiCnt4@@" Tag="4"/>
             </StackPanel>
             <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="2,0,0,10">
-              <TextBlock Text="尺寸" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
-              <RadioButton x:Name="AiSize2K" Style="{StaticResource IvPill}" GroupName="aisize" Content="2K 自适应" Tag="2K" IsChecked="True"
-                           ToolTip="模型按提示词内容自适应构图，约 2K 分辨率"/>
-              <RadioButton x:Name="AiSize4K" Style="{StaticResource IvPill}" GroupName="aisize" Content="4K 高清" Tag="4K"/>
-              <RadioButton x:Name="AiSizeW" Style="{StaticResource IvPill}" GroupName="aisize" Content="2560×1600" Tag="2560x1600"
-                           ToolTip="与本机屏幕同比例（16:10）的固定尺寸"/>
-              <RadioButton x:Name="AiSizeHD" Style="{StaticResource IvPill}" GroupName="aisize" Content="2048×1152" Tag="2048x1152"
-                           ToolTip="16:9 固定尺寸"/>
+              <TextBlock x:Name="AiSizeLabel" Text="@@aiSizeLabel@@" Foreground="#8A90A0" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <RadioButton x:Name="AiSize2K" Style="{StaticResource IvPill}" GroupName="aisize" Content="@@aiSize2K@@" Tag="2K" IsChecked="True"
+                           ToolTip="@@tipAiSize2K@@"/>
+              <RadioButton x:Name="AiSize4K" Style="{StaticResource IvPill}" GroupName="aisize" Content="@@aiSize4K@@" Tag="4K"/>
+              <RadioButton x:Name="AiSizeW" Style="{StaticResource IvPill}" GroupName="aisize" Content="@@aiSizeW@@" Tag="2560x1600"
+                           ToolTip="@@tipAiSizeW@@"/>
+              <RadioButton x:Name="AiSizeHD" Style="{StaticResource IvPill}" GroupName="aisize" Content="@@aiSizeHD@@" Tag="2048x1152"
+                           ToolTip="@@tipAiSizeHD@@"/>
             </StackPanel>
             <StackPanel Grid.Row="4" Margin="0,0,0,4">
-              <Button x:Name="BtnAiGen" Style="{StaticResource BtnPrimary}" Content="✨ 生成壁纸"/>
+              <Button x:Name="BtnAiGen" Style="{StaticResource BtnPrimary}" Content="@@btnAiGen@@"/>
               <TextBlock x:Name="AiStatus" Foreground="#8A90A0" FontSize="12" Margin="2,8,0,0" TextWrapping="Wrap"/>
             </StackPanel>
             <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto" Margin="0,4,0,0">
               <WrapPanel x:Name="AiPanel"/>
             </ScrollViewer>
-            <TextBlock Grid.Row="6" Foreground="#4E5464" FontSize="10.5" Margin="2,8,0,0"
+            <TextBlock Grid.Row="6" x:Name="AiHint" Foreground="#4E5464" FontSize="10.5" Margin="2,8,0,0"
                        TextWrapping="Wrap"
-                       Text="生成结果自动存入共享壁纸库（ai- 开头）· 点卡片「应用」立即换上（同步模式作用于所有勾选应用）· API Key 仅保存在本机 doubao.json"/>
+                       Text="@@aiHint@@"/>
           </Grid>
         </Grid>
       </Grid>
@@ -1311,6 +1754,20 @@ function Commit-Cfg($cfg) {
   </Border>
 </Window>
 '@
+# 占位符 → 当前语言文案；替换值做 XML 转义（文案里的 & < > " 不能破坏 XAML 属性）。
+# 用倒序 Remove/Insert 而非 [regex]::Replace 的委托回调：PS 5.1 里委托脚本块取不到
+# 本脚本的函数与 $script: 变量（T 查表返回空，占位符原样留在界面上）
+$xamlText = $xamlRaw
+$ms = [regex]::Matches($xamlRaw, '@@([A-Za-z0-9_]+)@@')
+$xamlText = $xamlRaw
+for ($i = $ms.Count - 1; $i -ge 0; $i--) {
+    $m = $ms[$i]
+    $s = [string](T $m.Groups[1].Value)
+    if (-not $s) { continue }
+    $s = $s.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;').Replace('"', '&quot;')
+    $xamlText = $xamlText.Remove($m.Index, $m.Length).Insert($m.Index, $s)
+}
+[xml]$xaml = $xamlText
 
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
@@ -1410,13 +1867,13 @@ function Update-TargetSummary {
     $total = $script:Apps.Count
     if ($script:Sync) {
         $n = @($script:Checked | Where-Object { $script:ChipMap.ContainsKey($_) }).Count
-        $btn.Content = if ($total -gt 0 -and $n -ge $total) { "全部 $total 个应用" } else { "已选 $n / $total 个应用" }
+        $btn.Content = if ($total -gt 0 -and $n -ge $total) { (T 'targetAll') -f $total } else { (T 'targetSome') -f $n, $total }
         $hint = Ctrl 'AppTargetHint'
-        if ($hint) { $hint.Text = '勾选要批量操作的应用，设置的壁纸与轮换会应用到所有勾选项' }
+        if ($hint) { $hint.Text = (T 'targetHintSync') }
     } else {
         $btn.Content = $script:Active
         $hint = Ctrl 'AppTargetHint'
-        if ($hint) { $hint.Text = '独立模式：只修改选中的这一个应用' }
+        if ($hint) { $hint.Text = (T 'targetHintSolo') }
     }
 }
 
@@ -1486,7 +1943,7 @@ function Show-Empty([string]$appName) {
     $preview.Visibility = 'Collapsed'
     Stop-PreviewVideo
     $previewEmpty.Visibility = 'Visible'
-    $emptyText.Text = if ($AppMap[$appName].Terminal) { "$appName 未设置壁纸 · Windows Terminal 默认纯色背景" } else { "$appName 未设置壁纸 · 显示内置动态极光" }
+    $emptyText.Text = if ($AppMap[$appName].Terminal) { (T 'emptyTerm') -f $appName } else { (T 'emptyApp') -f $appName }
     $badge.Visibility = 'Collapsed'
 }
 
@@ -1517,10 +1974,10 @@ function Update-NowView {
         $rc = Get-AppRotCfg $app
         $n = @(Get-ChildItem (Join-Path $AppMap[$app].Dir 'rotate') -Filter 'rotate-*' -File -ErrorAction SilentlyContinue).Count
         $iv = $rc.interval
-        $ivText = if ($iv -gt 0) { "每 $iv 分钟" } else { '打开应用时' }
-        $badgeText.Text = "$app · 自动轮换中 $n 张 · $ivText 换一张"
+        $ivText = if ($iv -gt 0) { (T 'ivTextEvery') -f $iv } else { (T 'ivTextLaunch') }
+        $badgeText.Text = (T 'badgeRotate') -f $app, $n, $ivText
         Show-NowMedia $rot1
-        $statusText.Text = "$app 正在自动轮换壁纸（预览为轮换集第 1 张，应用内显示其中一张）。本页操作只作用于 $app。"
+        $statusText.Text = (T 'nowRotating') -f $app
         return
     }
     $f = Get-WallpaperFile $app
@@ -1610,7 +2067,7 @@ function Get-WtProfile($root, $app) {
 # （defaults 仅在当前正指向该应用壁纸时才清，避免误删另一终端目标写入的值）。
 function Set-WtBackground([string]$appName, $imgPath, [double]$alpha) {
     $root = Get-WtSettings
-    if (-not $root) { return '无法解析 Windows Terminal settings.json（文件损坏？）' }
+    if (-not $root) { return (T 'wtParseFail') }
     try {
         $p = Get-WtProfile $root $AppMap[$appName]
         $profs = $root.PSObject.Properties['profiles']
@@ -1648,21 +2105,21 @@ function Set-WtBackground([string]$appName, $imgPath, [double]$alpha) {
             }
         }
         Save-WtSettings $root
-    } catch { return '写入 Windows Terminal 设置失败：' + $_.Exception.Message }
+    } catch { return (T 'wtWriteFail') -f $_.Exception.Message }
     return $null
 }
 
 # 终端目标的壁纸落盘：位图类直接硬链接进应用目录；视频/webp 用 ffmpeg 抽帧转 png。
 # 返回 $null=成功，字符串=失败原因（调用方展示）。失败时不动现有壁纸。
 function Set-TerminalWallpaper([string]$appName, [string]$src) {
-    if (-not $wtSettingsPath) { return '未找到 Windows Terminal，无法设置终端壁纸' }
+    if (-not $wtSettingsPath) { return (T 'wtMissing') }
     $dir = $AppMap[$appName].Dir
     $ext = [IO.Path]::GetExtension($src).ToLower(); if ($ext -eq '.jpeg') { $ext = '.jpg' }
     $final = $src
     if ($ext -notin @('.png', '.jpg', '.bmp', '.gif')) {
         # WT 不支持视频/webp：抽第 1 秒帧（webp 直接转）成 png；gif 动图 WT 原生支持无需转
         $ff = Join-Path $hub 'bin\ffmpeg.exe'
-        if (-not (Test-Path $ff)) { return '终端壁纸仅支持图片/GIF：把视频转成 png 需要 ffmpeg（~\.ai-wallpaper\bin\），未找到' }
+        if (-not (Test-Path $ff)) { return (T 'ffmpegMissing') }
         $tmp = Join-Path $env:TEMP ('zwp-term-' + [guid]::NewGuid().ToString('N') + '.png')
         $ffArgs = @('-hide_banner', '-loglevel', 'error', '-y')
         if ($ext -in @('.mp4', '.webm')) { $ffArgs += @('-ss', '1') }
@@ -1670,7 +2127,7 @@ function Set-TerminalWallpaper([string]$appName, [string]$src) {
         & $ff @ffArgs 2>$null
         if (-not (Test-Path $tmp) -or (Get-Item $tmp).Length -eq 0) {
             Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-            return '视频抽帧失败，无法生成终端壁纸（png）'
+            return (T 'frameFail')
         }
         $final = $tmp; $ext = '.png'
     }
@@ -1685,7 +2142,7 @@ function Set-TerminalWallpaper([string]$appName, [string]$src) {
         # 旧文件被占用到删/改名都失败时，绝不能复制覆写现存路径——写穿硬链接会污染中心库文件本身
         if (Test-Path $dst) {
             if ($final -ne $src) { Remove-Item $final -Force -ErrorAction SilentlyContinue }
-            return "旧壁纸被占用且无法腾出路径，未更换（关闭相关终端标签后重试）"
+            return (T 'termOccupied')
         }
         $linked = $false
         try { New-Item -ItemType HardLink -Path $dst -Target $final -ErrorAction Stop | Out-Null; $linked = $true } catch {}
@@ -1715,7 +2172,7 @@ function Set-AppStaticWallpaper([string]$appName, [string]$src) {
     # 硬链接到中心库文件：零重复磁盘空间；跨卷/系统不支持时回退为复制。
     # 旧文件被占用到删/改名都失败时，绝不能复制覆写现存路径——写穿硬链接会污染中心库文件本身
     if (Test-Path $dst) {
-        $script:WpError = "旧壁纸被占用且无法腾出路径，未更换（关闭 $appName 后重试）"
+        $script:WpError = (T 'appOccupied') -f $appName
         return
     }
     $linked = $false
@@ -1762,7 +2219,7 @@ function Start-VideoNormalize([string]$libPath, [string]$appName, [string]$type)
     try { $proc = Start-Process -FilePath $ff -ArgumentList $argStr -WindowStyle Hidden -PassThru -ErrorAction Stop }
     catch { Complete-Import $libPath $type $appName; return }
     $script:NormJob = @{ Proc = $proc; Tmp = $tmp; Lib = $libPath; App = $appName; Type = $type }
-    $statusText.Text = '正在归一化视频（≤1080p/30fps，时长取决于视频大小）… 期间可继续使用选择器'
+    $statusText.Text = (T 'normBusy')
     $normTimer.Start()
 }
 
@@ -1772,12 +2229,12 @@ function Complete-Import([string]$libPath, [string]$type, [string]$appName) {
     Set-AppStaticWallpaper $appName $libPath
     Update-NowView
     if ($script:WpError) {
-        $statusText.Text = "已收藏到壁纸库，但 $appName 设置壁纸失败：" + $script:WpError
+        $statusText.Text = (T 'importSetFail') -f $appName, $script:WpError
         $script:WpError = $null
         Update-Library
         return
     }
-    $statusText.Text = "已为 $appName 设置并收藏：$([IO.Path]::GetFileName($libPath))`n$([math]::Round((Get-Item $libPath).Length/1MB,1)) MB · 仅作用于 $appName；要批量应用到其他应用请到「壁纸库」页点「应用」"
+    $statusText.Text = (T 'importOk') -f $appName, [IO.Path]::GetFileName($libPath), [math]::Round((Get-Item $libPath).Length/1MB,1)
     Update-Library
 }
 
@@ -1786,7 +2243,7 @@ function Import-Wallpaper([string]$file, [string]$appName) {
     $ext = [IO.Path]::GetExtension($file).ToLower()
     if ($ext -eq '.jpeg') { $ext = '.jpg' }
     if ($ext -notin @('.mp4', '.webm', '.gif', '.webp', '.png', '.jpg')) {
-        $statusText.Text = '不支持的文件类型：' + $ext
+        $statusText.Text = (T 'importBadType') -f $ext
         return
     }
     $type = if ($ext -in @('.mp4', '.webm')) { 'video' } else { 'image' }
@@ -1794,7 +2251,7 @@ function Import-Wallpaper([string]$file, [string]$appName) {
     $libName = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 4) + $ext
     $libPath = Join-Path $hubLib $libName
     try { Copy-Item -Path $file -Destination $libPath -ErrorAction Stop } catch {
-        $statusText.Text = '导入失败（复制到壁纸库）：' + $_.Exception.Message
+        $statusText.Text = (T 'importFail') -f $_.Exception.Message
         return
     }
     if ($type -eq 'video') { Start-VideoNormalize $libPath $appName $type; return }
@@ -1835,16 +2292,16 @@ function Apply-LibraryItem($item) {
         # 拷贝壁纸 + 清轮换残留 + 写 refresh 标记 → 运行中的应用 5 秒内热切换
         Set-AppStaticWallpaper $name $src
     }
-    $msg = "已应用到 $(TargetsText)：$($item.file)"
+    $msg = (T 'applyDone') -f (TargetsText), $item.file
     if ($script:WpError) {
-        $msg += "`n注意：终端目标有失败 —— " + $script:WpError
+        $msg += "`n" + ((T 'applyTermFail') -f $script:WpError)
         $script:WpError = $null
     }
     if ($wasRotating) {
         # 应用 = 固定这张，暂停轮换，保证选择器与应用显示一致
         $cfg.rotation = $false
         Commit-Cfg $cfg
-        $msg += "`n（原轮换已暂停，开关可随时重新打开）"
+        $msg += "`n" + (T 'applyPaused')
     }
     # 跳到「当前壁纸」页并查看目标应用之一，立刻看到同步结果
     if (@($targets) -notcontains $script:NowApp) {
@@ -1895,7 +2352,7 @@ function New-MiniButton([string]$text, $tag) {
 }
 
 function Update-Hints {
-    (Ctrl 'BtnRestart').Content = if ($AppMap[$script:NowApp].Terminal) { '热生效 · 免重启' } else { "重启 $script:NowApp" }
+    (Ctrl 'BtnRestart').Content = if ($AppMap[$script:NowApp].Terminal) { (T 'btnRestartHot') } else { (T 'btnRestartApp') -f $script:NowApp }
     # 滑杆跟随当前查看应用的设置（程序化回填不打到写盘定时器）
     try {
         $want = (Get-UiAlpha $script:NowApp) * 100
@@ -1920,10 +2377,10 @@ function Update-Library {
     }
     $n = @($cfg.items | Where-Object { $_.rotate }).Count
     $who = TargetsText
-    $hint = "开启后每次打开 $who 自动换用下面勾选的下一张壁纸"
+    $hint = (T 'rotOffHint') -f $who
     if ($cfg.rotation) {
-        $hint = "已选 $n 张 · 每次打开 $who 自动换用下一张"
-        if ($iv -gt 0) { $hint += " · 每 $iv 分钟再换一次" }
+        $hint = (T 'rotOnHint') -f $n, $who
+        if ($iv -gt 0) { $hint += (T 'rotOnHintIv') -f $iv }
     }
     (Ctrl 'RotHint').Text = $hint
 
@@ -2018,7 +2475,7 @@ function Update-Library {
         $ops.Columns = 3
         $ops.Margin = New-Object Windows.Thickness 6, 5, 6, 7
 
-        $rotBtn = New-MiniButton '轮换' $it
+        $rotBtn = New-MiniButton (T 'cardRotate') $it
         if ($it.rotate) {
             $rotBtn.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#3B82F6')
             $rotBtn.Foreground = [Windows.Media.Brushes]::White
@@ -2033,7 +2490,7 @@ function Update-Library {
         })
         $ops.Children.Add($rotBtn) | Out-Null
 
-        $useBtn = New-MiniButton '应用' $it
+        $useBtn = New-MiniButton (T 'cardApply') $it
         $useBtn.Margin = New-Object Windows.Thickness 0
         $useBtn.Add_Click({
             $item = $this.Tag
@@ -2041,7 +2498,7 @@ function Update-Library {
         })
         $ops.Children.Add($useBtn) | Out-Null
 
-        $delBtn = New-MiniButton '删除' $it
+        $delBtn = New-MiniButton (T 'cardDelete') $it
         $delBtn.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
         $delBtn.Margin = New-Object Windows.Thickness 3, 0, 0, 0
         $delBtn.Add_Click({
@@ -2122,7 +2579,7 @@ body[data-vscode-theme-name*="Dark" i], body[data-vscode-theme-name*="dark"], bo
         try {
             [IO.File]::WriteAllText($css, $text, [Text.UTF8Encoding]::new($true))
             Touch-LiveMarker $name
-        } catch { $script:WpError = "写 $name 的 custom.css 失败：" + $_.Exception.Message }
+        } catch { $script:WpError = (T 'cssWriteFail') -f $name, $_.Exception.Message }
     }
 }
 
@@ -2136,10 +2593,10 @@ $uiTimer.Add_Tick({
     $script:WpError = $null
     Set-UiAlpha $v $targets
     if ($script:WpError) {
-        $statusText.Text = "界面不透明度应用失败：" + $script:WpError
+        $statusText.Text = (T 'alphaFail') -f $script:WpError
         $script:WpError = $null
     } else {
-        $statusText.Text = "界面不透明度 $([int]$uiSlider.Value)% 已应用到 $($targets -join '、')，几秒内自动生效（无需重启）。"
+        $statusText.Text = (T 'alphaOk') -f [int]$uiSlider.Value, (JoinL $targets)
     }
 })
 $uiSlider.Add_ValueChanged({
@@ -2149,10 +2606,72 @@ $uiSlider.Add_ValueChanged({
     $uiTimer.Start()
 })
 
+# ── 语言切换：标题栏「EN / 中」按钮 → 全窗文案即时换语言 ──
+# 静态控件按名称换 Content/Text/ToolTip；动态区域（警告条、目标摘要、轮换提示、
+# 当前壁纸状态、库卡片按钮）复用既有 Update-* 渲染函数整体重画
+function Set-LanguageUi {
+    $contentMap = @{
+        TabNow        = 'tabNow';       TabLib        = 'tabLib';      TabAi         = 'tabAi'
+        BtnRecheck    = 'fixRecheck';   BtnFix        = 'fixOneKey'
+        BtnPick       = 'btnPick';      BtnClear      = 'btnClear';    BtnOpen       = 'btnOpenFolder'
+        BtnRestart    = 'btnRestartBase'; BtnRestore   = 'btnRestore'
+        SwSync        = 'swSync';       BtnTargetDone = 'targetDone'
+        Iv0           = 'iv0';          Iv1           = 'iv1';         Iv5           = 'iv5'
+        Iv15          = 'iv15';         Iv30          = 'iv30';        Iv60          = 'iv60'
+        BtnAiKeySave  = 'btnKeySave';   AiCnt1        = 'aiCnt1';      AiCnt2        = 'aiCnt2'
+        AiCnt4        = 'aiCnt4';       AiSize2K      = 'aiSize2K';    AiSize4K      = 'aiSize4K'
+        AiSizeW       = 'aiSizeW';      AiSizeHD      = 'aiSizeHD'
+        BtnAiGen      = 'btnAiGen'
+    }
+    $textMap = @{
+        BrandText     = 'brand';        BrandSub      = 'brandSub'
+        NowViewLabel  = 'nowViewLabel'; EmptyText     = 'emptyAurora'
+        AlphaLabel    = 'alphaLabel';   NowHint       = 'nowHint'
+        TargetLabel   = 'targetLabel';  RotTitle      = 'rotTitle';    RotHint       = 'rotHintBase'
+        IntervalLabel = 'intervalLabel'; LibEmpty     = 'libEmpty';    LibHint       = 'libHint'
+        AiKeyLabel    = 'aiKeyLabel';   AiPromptHint  = 'aiPromptHint'
+        AiModelLabel  = 'aiModelLabel'; AiCountLabel  = 'aiCountLabel'; AiSizeLabel  = 'aiSizeLabel'
+        AiHint        = 'aiHint'
+    }
+    foreach ($name in $contentMap.Keys) {
+        $c = Ctrl $name
+        if ($c) { $c.Content = T $contentMap[$name] }
+    }
+    foreach ($name in $textMap.Keys) {
+        $c = Ctrl $name
+        if ($c) { $c.Text = T $textMap[$name] }
+    }
+    $window.Title = T 'winTitle'
+    $btnLang = Ctrl 'BtnLang'
+    $btnLang.Content = T 'langBtn'
+    $btnLang.ToolTip = T 'tipLang'
+    foreach ($pair in @(
+        @('NowAppCombo', 'nowComboTip'), @('BtnClear', 'tipClear'), @('BtnRestore', 'tipRestore'),
+        @('AppTargetBtn', 'tipTarget'), @('SwSync', 'tipSync'), @('AiKey', 'tipAiKey'),
+        @('AiModel', 'tipAiModel'), @('AiSize2K', 'tipAiSize2K'), @('AiSizeW', 'tipAiSizeW'),
+        @('AiSizeHD', 'tipAiSizeHD')
+    )) {
+        $c = Ctrl $pair[0]
+        if ($c) { $c.ToolTip = T $pair[1] }
+    }
+    Update-HealthVisuals
+    Update-ChipVisual
+    Update-Library
+    Update-Hints
+    Update-NowView
+    # 状态栏残留的上一语言消息重置为「当前模式」的中性提示
+    $modeText = if ($script:Sync) { (T 'bootSync') -f (JoinL $script:Checked) } else { (T 'bootSolo') -f $script:Active }
+    $statusText.Text = "$modeText" + (T 'bootTail')
+}
+
 # ── 事件 ─────────────────────────────────────────────────
 (Ctrl 'DragBar').Add_MouseLeftButtonDown({ try { $window.DragMove() } catch {} })
 (Ctrl 'BtnClose').Add_Click({ $window.Close() })
 (Ctrl 'BtnMin').Add_Click({ $window.WindowState = 'Minimized' })
+(Ctrl 'BtnLang').Add_Click({
+    Save-Language $(if ($script:Lang -eq 'zh') { 'en' } else { 'zh' })
+    Set-LanguageUi
+})
 # 关窗时归一化还在后台跑：终止 ffmpeg 并清理半成品（避免孤儿进程与残留 .norm.mp4）
 $window.Add_Closing({
     if ($script:NormJob -ne $null) {
@@ -2185,8 +2704,11 @@ $window.Add_Closing({
 
 (Ctrl 'BtnPick').Add_Click({
     $dlg = New-Object Microsoft.Win32.OpenFileDialog
-    $dlg.Title = "为 $script:NowApp 选择壁纸"
-    $dlg.Filter = '媒体文件|*.mp4;*.webm;*.gif;*.webp;*.png;*.jpg;*.jpeg|视频|*.mp4;*.webm|图片|*.gif;*.webp;*.png;*.jpg;*.jpeg|所有文件|*.*'
+    $dlg.Title = (T 'pickTitle') -f $script:NowApp
+    $dlg.Filter = (T 'filterMedia') + '|*.mp4;*.webm;*.gif;*.webp;*.png;*.jpg;*.jpeg|' +
+                  (T 'filterVideo') + '|*.mp4;*.webm|' +
+                  (T 'filterImage') + '|*.gif;*.webp;*.png;*.jpg;*.jpeg|' +
+                  (T 'filterAll') + '|*.*'
     if ($dlg.ShowDialog()) { Import-Wallpaper $dlg.FileName $script:NowApp }
 })
 
@@ -2245,7 +2767,7 @@ $aiPrompt.Add_TextChanged({
 })
 (Ctrl 'BtnAiKeySave').Add_Click({
     Save-AiOptions
-    $aiStatus.Text = '已保存 API Key 与生成选项（仅存本机 doubao.json）。'
+    $aiStatus.Text = (T 'aiSaved')
 })
 
 $script:AiBusy = $false
@@ -2255,25 +2777,25 @@ function Start-AiGenerate {
     if ($script:AiBusy) { return }
     $prompt = $aiPrompt.Text.Trim()
     if (-not $prompt) {
-        $aiStatus.Text = '先写一句描述，例如：暮色雪山与湖泊，金色晚霞倒映水面，电影感构图，超高清细节'
+        $aiStatus.Text = (T 'aiNeedPrompt')
         return
     }
     if (-not $aiKey.Text.Trim()) {
-        $aiStatus.Text = '请先填入火山方舟 API Key（火山引擎控制台 → 火山方舟 → API Key 管理，需开通豆包·图像生成模型），填好后点「保存 Key」。'
+        $aiStatus.Text = (T 'aiNeedKey')
         $aiKey.Focus()
         return
     }
     Save-AiOptions
     $script:AiBusy = $true
     $btnAiGen.IsEnabled = $false
-    $btnAiGen.Content = '生成中…'
+    $btnAiGen.Content = (T 'aiGenBusy')
     $aiPanel.Children.Clear()
     $cnt = Get-AiCount
-    $aiStatus.Text = "正在请求豆包生成 1/$cnt 张（每张约 10~30 秒）…"
+    $aiStatus.Text = (T 'aiProgress') -f $cnt
     # 后台 runspace 里请求 API，避免卡死界面；完成后由 $aiTimer 在 UI 线程回收结果
     $ps = [powershell]::Create()
     $null = $ps.AddScript({
-        param($key, $model, $size, $prompt, $outDir, $count)
+        param($key, $model, $size, $prompt, $outDir, $count, $noImgMsg)
         $files = @(); $errors = @()
         try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
         for ($i = 0; $i -lt $count; $i++) {
@@ -2298,7 +2820,7 @@ function Start-AiGenerate {
                     [IO.File]::WriteAllBytes((Join-Path $outDir $name), $bytes)
                     $files += $name
                 } else {
-                    $errors += '响应中没有图片数据'
+                    $errors += $noImgMsg
                 }
             } catch {
                 $msg = $_.ErrorDetails.Message
@@ -2308,7 +2830,7 @@ function Start-AiGenerate {
             }
         }
         return @{ files = $files; errors = $errors }
-    }).AddArgument($aiKey.Text.Trim()).AddArgument($script:Ai.model).AddArgument((Get-AiSize)).AddArgument($prompt).AddArgument($hubLib).AddArgument($cnt)
+    }).AddArgument($aiKey.Text.Trim()).AddArgument($script:Ai.model).AddArgument((Get-AiSize)).AddArgument($prompt).AddArgument($hubLib).AddArgument($cnt).AddArgument((T 'aiNoImageData'))
     $script:AiJob = @{ Ps = $ps; Async = $ps.BeginInvoke() }
     $aiTimer.Start()
 }
@@ -2339,7 +2861,7 @@ $aiTimer.Add_Tick({
     $script:AiJob = $null
     $script:AiBusy = $false
     $btnAiGen.IsEnabled = $true
-    $btnAiGen.Content = '✨ 生成壁纸'
+    $btnAiGen.Content = (T 'btnAiGen')
     $files = @(@($out.files) | Where-Object { $_ }); $errs = @(@($out.errors) | Where-Object { $_ })
     if ($files.Count -gt 0) {
         foreach ($f in $files) {
@@ -2347,12 +2869,12 @@ $aiTimer.Add_Tick({
             Add-AiResultCard $f
         }
         Update-Library
-        $msg = "已生成 $($files.Count) 张并自动收藏进壁纸库，点卡片「应用」立即换上。"
-        if ($errs.Count -gt 0) { $msg += "（部分失败：$(($errs | ForEach-Object { Get-ErrText $_ }) -join '；')）" }
+        $msg = (T 'aiDone') -f $files.Count
+        if ($errs.Count -gt 0) { $msg += (T 'aiPartial') -f (($errs | ForEach-Object { Get-ErrText $_ }) -join (T 'listSep')) }
         $aiStatus.Text = $msg
     } else {
-        $e = if ($errs.Count -gt 0) { ($errs | ForEach-Object { Get-ErrText $_ }) -join "`n" } else { '未知错误' }
-        $aiStatus.Text = "生成失败：$e"
+        $e = if ($errs.Count -gt 0) { ($errs | ForEach-Object { Get-ErrText $_ }) -join "`n" } else { (T 'aiUnknownErr') }
+        $aiStatus.Text = (T 'aiFailed') -f $e
     }
 })
 
@@ -2393,7 +2915,7 @@ function Add-AiResultCard([string]$fileName) {
     $ops = New-Object Windows.Controls.Primitives.UniformGrid
     $ops.Columns = 2
     $ops.Margin = New-Object Windows.Thickness 6, 5, 6, 7
-    $useBtn = New-MiniButton '应用' $fileName
+    $useBtn = New-MiniButton (T 'cardApply') $fileName
     $useBtn.Margin = New-Object Windows.Thickness 0, 0, 3, 0
     $useBtn.Add_Click({
         $h = Get-HubConfig
@@ -2401,7 +2923,7 @@ function Add-AiResultCard([string]$fileName) {
         if ($item) { Apply-LibraryItem $item }
     })
     $ops.Children.Add($useBtn) | Out-Null
-    $delBtn = New-MiniButton '删除' $fileName
+    $delBtn = New-MiniButton (T 'cardDelete') $fileName
     $delBtn.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#F87171')
     $delBtn.Margin = New-Object Windows.Thickness 3, 0, 0, 0
     $delBtn.Add_Click({
@@ -2433,7 +2955,7 @@ function Add-AiResultCard([string]$fileName) {
         Get-ChildItem -Path (Join-Path $dir 'wallpaper.*') -ErrorAction SilentlyContinue | Remove-Item -Force
         $err = Set-WtBackground $app $null 0.55
         Update-NowView
-        $statusText.Text = if ($err) { "清除 $app 壁纸失败：$err" } else { "已清除 $app 的壁纸，Windows Terminal 恢复默认纯色背景。" }
+        $statusText.Text = if ($err) { (T 'clearTermFail') -f $app, $err } else { (T 'clearTermOk') -f $app }
         return
     }
     Get-ChildItem -Path (Join-Path $dir 'wallpaper.*') -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -2443,7 +2965,7 @@ function Add-AiResultCard([string]$fileName) {
     if ($c.rotation) { $c.rotation = $false; Save-AppConfig $app $c }
     Touch-LiveMarker $app
     Update-NowView
-    $statusText.Text = "已清除 $app 的壁纸与轮换文件，将显示内置动态极光。（「壁纸库」页的轮换设置不受影响）"
+    $statusText.Text = (T 'clearOk') -f $app
 })
 
 (Ctrl 'BtnOpen').Add_Click({ Start-Process explorer.exe -ArgumentList "`"$hubLib`"" })
@@ -2451,9 +2973,7 @@ function Add-AiResultCard([string]$fileName) {
 function Restart-Apps([string[]]$names) {
     if (@($names | Where-Object { -not $AppMap[$_].Terminal }).Count -eq 0) {
         # 终端目标：WT 监听 settings.json 热加载，换壁纸/改透明度即时生效，重启既无必要也不该杀终端
-        [System.Windows.MessageBox]::Show(
-            'PowerShell / CMD 由 Windows Terminal 承载：换壁纸即时热生效，无需重启。',
-            '免重启', 'OK', 'Information') | Out-Null
+        [System.Windows.MessageBox]::Show((T 'boxNoRestart'), (T 'boxNoRestartTitle'), 'OK', 'Information') | Out-Null
         return
     }
     $running = @()
@@ -2462,13 +2982,13 @@ function Restart-Apps([string[]]$names) {
         if ($p) { $running += @{ Name = $name; Proc = $p } }
     }
     if ($running.Count -eq 0) {
-        [System.Windows.MessageBox]::Show('目标应用未在运行，直接启动即可。', '提示', 'OK', 'Information') | Out-Null
+        [System.Windows.MessageBox]::Show((T 'boxNotRunning'), (T 'boxInfoTitle'), 'OK', 'Information') | Out-Null
         return
     }
-    $list = ($running | ForEach-Object { $_.Name }) -join '、'
+    $list = JoinL ($running | ForEach-Object { $_.Name })
     $answer = [System.Windows.MessageBox]::Show(
-        "将关闭并重新启动：$list。未保存的会话内容不受影响（应用会自动恢复任务）。`n`n确认重启？",
-        '重启应用', 'YesNo', 'Question')
+        (T 'boxRestartConfirm') -f $list,
+        (T 'boxRestartTitle'), 'YesNo', 'Question')
     if ($answer -ne 'Yes') { return }
     foreach ($r in $running) {
         $app = $AppMap[$r.Name]
@@ -2535,11 +3055,11 @@ $swRotate.Add_Click({
     Update-NowView
     $n = @($cfg.items | Where-Object { $_.rotate }).Count
     if ($cfg.rotation -and $n -eq 0) {
-        $statusText.Text = '自动更换已开启，但还没有勾选任何壁纸——把想轮换的卡片点「轮换」勾上。'
+        $statusText.Text = (T 'rotOnNoItems')
     } elseif ($cfg.rotation) {
-        $statusText.Text = "自动更换已开启（$(TargetsText)，$n 张）。每次打开应用自动换用下一张。"
+        $statusText.Text = (T 'rotOn') -f (TargetsText), $n
     } else {
-        $statusText.Text = "自动更换已关闭（$(TargetsText)），将一直使用当前壁纸。"
+        $statusText.Text = (T 'rotOff') -f (TargetsText)
     }
 })
 
@@ -2551,9 +3071,9 @@ foreach ($pair in @(@('Iv0', 0), @('Iv1', 1), @('Iv5', 5), @('Iv15', 15), @('Iv3
         Commit-Cfg $cfg
         $ivNow = [int]$this.Tag
         if ($ivNow -gt 0) {
-            $statusText.Text = "轮换间隔：每 $ivNow 分钟自动换一张（应用运行期间也生效）"
+            $statusText.Text = (T 'ivSetEvery') -f $ivNow
         } else {
-            $statusText.Text = '轮换间隔：仅在打开应用时换一张'
+            $statusText.Text = (T 'ivSetLaunch')
         }
     })
 }
@@ -2580,9 +3100,9 @@ $swSync.Add_Click({
     Update-Library
     Update-NowView
     if ($script:Sync) {
-        $statusText.Text = "同步模式：「壁纸库」页的设置将一致应用到 $(TargetsText)。「当前壁纸」页仍按应用单独显示与设置。"
+        $statusText.Text = (T 'syncOn') -f (TargetsText)
     } else {
-        $statusText.Text = "独立模式：「壁纸库」页只修改 $script:Active。「当前壁纸」页仍按应用单独显示与设置。"
+        $statusText.Text = (T 'syncOff') -f $script:Active
     }
 })
 
@@ -2606,7 +3126,7 @@ $nowCombo.Add_SelectionChanged({
     $script:NowApp = $name
     Update-Hints
     Update-NowView
-    $statusText.Text = "正在查看：$script:NowApp 的当前壁纸 · 本页操作只作用于 $script:NowApp"
+    $statusText.Text = (T 'viewApp') -f $script:NowApp
 })
 $nowCombo.SelectedItem = $script:NowComboMap[$script:NowApp]
 Update-Hints
@@ -2640,13 +3160,13 @@ function Start-App([string]$name, [string]$preferExe) {
 }
 
 function Start-Repair {
-    if ($script:RepairJob -ne $null) { $statusText.Text = '修复正在进行中，请稍候…'; return }
+    if ($script:RepairJob -ne $null) { $statusText.Text = (T 'repairBusy'); return }
     $broken = @($Apps.Name | Where-Object { $script:Health[$_].Broken })
-    if ($broken.Count -eq 0) { $statusText.Text = '未检测到失效的壁纸补丁，无需修复。'; return }
+    if ($broken.Count -eq 0) { $statusText.Text = (T 'repairNone'); return }
     if (-not (Test-Path $RepairTool)) {
         [System.Windows.MessageBox]::Show(
-            "未找到修复工具链：`n$RepairTool`n`n请重新执行一次 apply-patch.ps1，它会自动部署修复工具。",
-            '一键修复', 'OK', 'Warning') | Out-Null
+            (T 'repairNoTool') -f $RepairTool,
+            (T 'repairTitle'), 'OK', 'Warning') | Out-Null
         return
     }
     # 组装修复任务；自动识别不到目录的应用弹文件夹选择框人工指认
@@ -2654,14 +3174,15 @@ function Start-Repair {
     foreach ($name in $broken) {
         $app = $AppMap[$name]
         $dir = $script:Health[$name].Dir
-        # 代理型应用（豆包/Codex）补丁在 hub 启动器，没有 resources 目录：自动识别不到也不用弹框指认
-        if (-not $dir -and -not $app.MsixId -and -not $app.Agent) {
+        # 代理型（豆包/Codex）补丁在 hub 启动器、Marvis 在 Roaming 离线页：都没有 resources
+        # 安装目录，识别不到也不用弹框指认（apply-patch 自会定位各自的补丁位置）
+        if (-not $dir -and -not $app.MsixId -and -not $app.Agent -and -not $app.ProbeFile) {
             $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-            $dlg.Description = "未能自动定位 $name 的安装目录，请手动选择（含 resources 文件夹的那一层）"
+            $dlg.Description = (T 'repairPickDir') -f $name
             if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and $dlg.SelectedPath) {
                 $dir = $dlg.SelectedPath
             } else {
-                $statusText.Text = "已跳过 $name（未指定安装目录）。"
+                $statusText.Text = (T 'repairSkipped') -f $name
                 continue
             }
         }
@@ -2669,6 +3190,9 @@ function Start-Repair {
             App = $name
             Id  = $(if ($app.PatchId) { $app.PatchId } else { $name })
             Dir = $dir
+            # stale（补丁在但脚本旧）必须 -Force 重打才能升级脚本；补丁真丢则普通重打即可，
+            # 不带 -Force（-Force 对「无补丁」场景无意义，且避免误用陈旧备份）
+            Force = [bool]$script:Health[$name].Stale
         }
         $p = Get-Process -Name $app.Proc -ErrorAction SilentlyContinue
         if ($p) { $needClose += @{ Name = $name; Proc = $p } }
@@ -2676,17 +3200,17 @@ function Start-Repair {
     if ($jobs.Count -eq 0) { return }
     # 打补丁要求应用处于关闭状态（MSIX 提权实例内部还会再查一次）
     if ($needClose.Count -gt 0) {
-        $list = ($needClose | ForEach-Object { $_.Name }) -join '、'
+        $list = JoinL ($needClose | ForEach-Object { $_.Name })
         $ans = [System.Windows.MessageBox]::Show(
-            "修复 $list 需要先关闭它（未保存的会话内容不受影响，应用会自动恢复任务，修完可选择重新启动）。`n`n继续？",
-            '一键修复', 'YesNo', 'Question')
+            (T 'repairNeedClose') -f $list,
+            (T 'repairTitle'), 'YesNo', 'Question')
         if ($ans -ne 'Yes') { return }
         foreach ($c in $needClose) { $c.Proc | Stop-Process -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Seconds 3
     }
     $script:RepairClosed = @($needClose | ForEach-Object { $_.Name })
     (Ctrl 'BtnFix').IsEnabled = $false
-    $statusText.Text = "正在修复：$(@($jobs | ForEach-Object { $_.App }) -join '、')（重打补丁约需几十秒，ZCode 需重新打包 asar）…"
+    $statusText.Text = (T 'repairProgress') -f (JoinL @($jobs | ForEach-Object { $_.App }))
     # 后台 runspace 逐个调用修复脚本，避免卡死界面；完成后由 $repairTimer 回收
     $ps = [powershell]::Create()
     $null = $ps.AddScript({
@@ -2695,6 +3219,7 @@ function Start-Repair {
         foreach ($j in $jobs) {
             $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $tool, '-App', $j.Id, '-NoShortcut')
             if ($j.Dir) { $argList += @('-InstallDir', $j.Dir) }
+            if ($j.Force) { $argList += '-Force' }
             $out = & powershell.exe @argList 2>&1
             $results += [pscustomobject]@{
                 Name = $j.App
@@ -2729,16 +3254,16 @@ $repairTimer.Add_Tick({
         else { $badList += $r.Name }
     }
     $msg = ''
-    if ($okList.Count -gt 0) { $msg += "已修复：$($okList -join '、')。" }
+    if ($okList.Count -gt 0) { $msg += (T 'repaired') -f (JoinL $okList) }
     if ($msixWait.Count -gt 0) {
-        $msg += "$($msixWait -join '、') 需管理员授权：请在弹出的 UAC/管理员窗口中确认，完成后自动检测（也可点「重新检测」）。"
+        $msg += (T 'msixWait') -f (JoinL $msixWait)
     }
     if ($badList.Count -gt 0) {
-        $msg += "`n修复失败："
+        $msg += "`n" + (T 'repairFailHead')
         foreach ($name in $badList) {
             $r = $results | Where-Object { $_.Name -eq $name } | Select-Object -First 1
             $tail = (@($r.Log -split "`n") | Select-Object -Last 2) -join ' '
-            $msg += "`n· $name：$tail"
+            $msg += "`n" + ((T 'repairFailItem') -f $name, $tail)
         }
     }
     $statusText.Text = $msg.Trim()
@@ -2752,11 +3277,11 @@ $repairTimer.Add_Tick({
     if ($okList.Count -gt 0 -and $script:RepairClosed.Count -gt 0) {
         $restart = @($script:RepairClosed | Where-Object { $okList -contains $_ })
         $ans = [System.Windows.MessageBox]::Show(
-            "修复完成：$($restart -join '、')。`n`n是否立即重新启动？",
-            '一键修复', 'YesNo', 'Question')
+            (T 'repairRestartAsk') -f (JoinL $restart),
+            (T 'repairTitle'), 'YesNo', 'Question')
         if ($ans -eq 'Yes') {
             foreach ($name in $restart) { Start-App $name '' }
-            $statusText.Text = "已重新启动 $($restart -join '、')，窗口标题出现 ✦ 即壁纸生效。"
+            $statusText.Text = (T 'restarted') -f (JoinL $restart)
         }
     }
 })
@@ -2771,14 +3296,14 @@ $recheckTimer.Add_Tick({
     if ($left.Count -eq 0 -or $script:RecheckLeft -le 0) {
         $recheckTimer.Stop()
         $fixed = @($script:RecheckNames | Where-Object { -not $script:Health[$_].Broken })
-        if ($fixed.Count -gt 0) { $statusText.Text = "已修复：$($fixed -join '、')。" }
-        else { $statusText.Text = "$($script:RecheckNames -join '、') 仍未修复，可重试「一键修复」或查看管理员窗口里的报错。" }
+        if ($fixed.Count -gt 0) { $statusText.Text = (T 'repaired') -f (JoinL $fixed) }
+        else { $statusText.Text = (T 'recheckNotFixed') -f (JoinL $script:RecheckNames) }
     }
 })
 (Ctrl 'BtnRecheck').Add_Click({
     Update-AppHealth
     $n = @($Apps.Name | Where-Object { $script:Health[$_].Broken }).Count
-    $statusText.Text = if ($n -eq 0) { '检测完成：所有应用的壁纸补丁均正常。' } else { "检测完成：仍有 $n 个应用补丁失效，可点「一键修复」。`n$((Ctrl 'FixText').Text)" }
+    $statusText.Text = if ($n -eq 0) { (T 'recheckOk') } else { (T 'recheckBad') -f $n, (Ctrl 'FixText').Text }
 })
 (Ctrl 'BtnFix').Add_Click({ Start-Repair })
 
@@ -2842,7 +3367,7 @@ function Restore-SharedMediaService {
 }
 
 function Start-Restore {
-    if ($script:RestoreJob -ne $null) { $statusText.Text = '还原正在进行中，请稍候…'; return }
+    if ($script:RestoreJob -ne $null) { $statusText.Text = (T 'restoreBusy'); return }
     $name = $script:NowApp
     $app = $AppMap[$name]
     if (-not $app) { return }
@@ -2850,14 +3375,14 @@ function Start-Restore {
     if ($app.Terminal) {
         # 终端目标常驻列表（WT 存在即自建目录），还原 = 清背景三键恢复默认纯色，列表不移除
         $ans = [System.Windows.MessageBox]::Show(
-            "将把 $name 恢复到最初状态：`n· 清除写入 Windows Terminal 的壁纸与背景三键（已打开的终端窗口即时热生效）`n· 删除壁纸目录 $($app.Dir)`n`n共享壁纸库不受影响。确认还原？",
-            '还原默认', 'YesNo', 'Warning')
+            (T 'restoreTermAsk') -f $name, $app.Dir,
+            (T 'restoreTitle'), 'YesNo', 'Warning')
         if ($ans -ne 'Yes') { return }
         $err = Set-WtBackground $name $null 0.55
-        if ($err) { $statusText.Text = "还原失败：$err"; return }
+        if ($err) { $statusText.Text = (T 'restoreFail') -f $err; return }
         Get-ChildItem $app.Dir -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
         Update-NowView
-        $statusText.Text = "$name 已还原默认：Windows Terminal 背景已恢复纯色（已打开的窗口即时生效）。"
+        $statusText.Text = (T 'restoreTermOk') -f $name
         return
     }
 
@@ -2867,44 +3392,44 @@ function Start-Restore {
     # 其余应用识别不到目录时与一键修复一致，弹文件夹选择框人工指认
     if (-not $dir -and -not $app.Agent -and -not $app.ProbeFile) {
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dlg.Description = "未能自动定位 $name 的安装目录，请手动选择（含 resources 文件夹的那一层）"
+        $dlg.Description = (T 'repairPickDir') -f $name
         if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and $dlg.SelectedPath) {
             $dir = $dlg.SelectedPath
         } else {
-            $statusText.Text = '已取消还原（未指定安装目录）。'
+            $statusText.Text = (T 'restoreCancel')
             return
         }
     }
     $running = Get-Process -Name $app.Proc -ErrorAction SilentlyContinue
     $lines = @(
-        "将把 $name 恢复到打补丁前的最初状态：",
-        '· 程序文件从原版备份（.zwp-backup）还原，壁纸注入全部移除'
+        (T 'restoreAskHead') -f $name,
+        (T 'restoreAskFile')
     )
-    if ($running) { $lines += "· 需要先关闭正在运行的 $name" }
+    if ($running) { $lines += (T 'restoreNeedClose') -f $name }
     $lines += @(
-        '· 删除该应用的壁纸数据（壁纸目录 / 轮换 / refresh 标记 / 配置）',
-        '· 共享壁纸库与其余应用不受影响；之后可随时重装补丁'
+        (T 'restoreAskData'),
+        (T 'restoreAskLib')
     )
-    if ($name -eq 'Codex') { $lines += '· 「ChatGPT」壁纸启动快捷方式会移除（商店包此前已卸载，如需继续使用请从 Microsoft Store 重装）' }
-    $ans = [System.Windows.MessageBox]::Show(($lines -join "`n") + "`n`n确认还原？", '还原默认', 'YesNo', 'Warning')
+    if ($name -eq 'Codex') { $lines += (T 'restoreCodexNote') }
+    $ans = [System.Windows.MessageBox]::Show(($lines -join "`n") + "`n`n" + (T 'restoreConfirm'), (T 'restoreTitle'), 'YesNo', 'Warning')
     if ($ans -ne 'Yes') { return }
     if ($running) {
         $running | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 3
         if (Get-Process -Name $app.Proc -ErrorAction SilentlyContinue) {
-            $statusText.Text = "$name 未能关闭（可能以管理员权限运行），请手动退出后重试还原。"
+            $statusText.Text = (T 'restoreCloseFail') -f $name
             return
         }
     }
     if (-not (Test-Path $RepairTool)) {
         [System.Windows.MessageBox]::Show(
-            "未找到修复工具链：`n$RepairTool`n`n请重新执行一次 apply-patch.ps1，它会自动部署修复工具。",
-            '还原默认', 'OK', 'Warning') | Out-Null
+            (T 'repairNoTool') -f $RepairTool,
+            (T 'restoreTitle'), 'OK', 'Warning') | Out-Null
         return
     }
     $job = @{ App = $name; Id = $(if ($app.PatchId) { $app.PatchId } else { $name }); Dir = $dir }
     (Ctrl 'BtnRestore').IsEnabled = $false
-    $statusText.Text = "正在还原 $name（从原版备份恢复程序文件，约需几十秒）…"
+    $statusText.Text = (T 'restoreProgress') -f $name
     # 后台 runspace 调 apply-patch -Rollback，避免卡死界面；完成后由 $restoreTimer 回收
     $ps = [powershell]::Create()
     $null = $ps.AddScript({
@@ -2937,16 +3462,16 @@ $restoreTimer.Add_Tick({
     (Ctrl 'BtnRestore').IsEnabled = $true
     $name = $job.Name
     if (-not $r -or $r.Exit -ne 0) {
-        $tail = if ($r) { (@($r.Log -split "`n") | Select-Object -Last 2) -join ' ' } else { '还原脚本未能运行' }
-        $statusText.Text = "还原 $name 失败：$tail"
+        $tail = if ($r) { (@($r.Log -split "`n") | Select-Object -Last 2) -join ' ' } else { (T 'restoreNoRun') }
+        $statusText.Text = (T 'restoreFailLog') -f $name, $tail
         return
     }
     $extra = ''
     if ($name -eq 'Marvis') {
         # CLI 回滚会停掉与 DeepSeek Harness 共用的媒体服务，DSH 还在用就原样补回
         $ms = Restore-SharedMediaService
-        if ($ms -eq $true) { $extra = '（已为 DeepSeek Harness 重新拉起共用媒体服务）' }
-        elseif ($ms -eq $false) { $extra = '（注意：共用媒体服务未能自动恢复，DSH 壁纸媒体可能失效，可对其重跑一键修复）' }
+        if ($ms -eq $true) { $extra = (T 'restoreMediaOk') }
+        elseif ($ms -eq $false) { $extra = (T 'restoreMediaFail') }
     }
     $app = $script:AppMap[$name]
     if ($app -and (Test-Path $app.Dir)) {
@@ -2955,18 +3480,18 @@ $restoreTimer.Add_Tick({
     }
     Remove-AppFromPicker $name
     if ($script:Apps.Count -eq 0) {
-        [System.Windows.MessageBox]::Show("所有应用均已还原到最初状态。`n重新安装补丁：apply-patch.ps1 [-App <名称>]", '还原默认', 'OK', 'Information') | Out-Null
+        [System.Windows.MessageBox]::Show((T 'restoreAllDone'), (T 'restoreTitle'), 'OK', 'Information') | Out-Null
         $window.Close()
         return
     }
-    $statusText.Text = "$name 已还原到最初状态：程序文件已从原版备份恢复、壁纸数据已清除。重新安装：apply-patch.ps1 -App $($job.Id)$extra"
+    $statusText.Text = (T 'restoreDone') -f $name, $job.Id, $extra
 })
 (Ctrl 'BtnRestore').Add_Click({ Start-Restore })
 
 Update-ChipVisual
 Update-Library
-$modeText = if ($script:Sync) { "同步模式：「壁纸库」的设置应用到 $($script:Checked -join '、')" } else { "独立模式：「壁纸库」只修改 $script:Active" }
-$statusText.Text = "$modeText。「当前壁纸」页按应用单独显示，操作只作用于当前查看的应用。"
+$modeText = if ($script:Sync) { (T 'bootSync') -f (JoinL $script:Checked) } else { (T 'bootSolo') -f $script:Active }
+$statusText.Text = "$modeText" + (T 'bootTail')
 # 启动时全量体检一次：有补丁失效的（应用升级覆盖等）立即弹出警告条
 Update-AppHealth
 [void]$window.ShowDialog()

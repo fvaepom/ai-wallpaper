@@ -1,3 +1,4 @@
+/* zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署脚本是否为旧版 */
 /* ai-wallpaper — 壁纸层 + 界面透明化注入脚本（DeepSeek Harness 桌面端专用变体）
  *
  * 由 apply-patch.ps1 以【内联】方式注入到 DSH Desktop（开源 DeepSeek Harness 桌面壳，

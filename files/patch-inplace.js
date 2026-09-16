@@ -12,7 +12,8 @@
  *   5. 全量自校验：重新解析，逐文件重算 SHA256 与头部比对，全部通过才替换原文件
  *   6. 可选 --exe <主程序>：Electron 启用 asar 完整性 fuse 时（如 WorkBuddy，Electron 37），
  *      主程序内嵌 JSON 数组存有 app.asar 头部哈希，头部变更会被静默处决。
- *      本脚本自动把 exe 中旧头部哈希（64 位 hex 字符串）替换为新哈希（等长原地替换）。
+ *      本脚本自动把 exe 中旧头部哈希（64 位 hex 字符串）替换为新哈希（等长原地替换）；
+ *      找不到旧哈希 → 视为该构建未启用校验，跳过主程序更新（归档补丁不受影响）。
  *
  * 用法：
  *   node patch-inplace.js <app.asar> <renderer目录> <index.html名> <注入js文件名> <注入js源文件> [bundle前缀]
@@ -188,8 +189,19 @@ const oldIndexHtml = Buffer.alloc(indexEntry.size);
 fs.readSync(fd, oldIndexHtml, 0, indexEntry.size, oldIndexAbs);
 let html = oldIndexHtml.toString('utf8');
 if (html.includes(injectName)) die(`${indexName} 已包含 ${injectName} 引用`);
-const bundleRe = new RegExp('(<script type="module" crossorigin src="\\./assets/' + (bundleName || 'index') + '-[^"]+\\.js"></script>)');
-if (!bundleRe.test(html)) die(`${indexName} 中未找到主 bundle <script> 标签（前缀 ${bundleName || 'index'}）`);
+/* 主 bundle 引用多锚点回退：不同构建的 script 标签属性不同（增删 integrity、属性顺序变化） */
+const bn = bundleName || 'index';
+const bundlePatterns = [
+  '(<script type="module" crossorigin src="\\./assets/' + bn + '-[^"]+\\.js"></script>)',
+  '(<script[^>]+type="module"[^>]+src="\\./assets/' + bn + '-[^"]+\\.js"[^>]*></script>)',
+  '(<script[^>]+src="\\./assets/' + bn + '-[^"]+\\.js"[^>]*></script>)',
+];
+let bundleRe = null;
+for (const p of bundlePatterns) {
+  const re = new RegExp(p);
+  if (re.test(html)) { bundleRe = re; break; }
+}
+if (!bundleRe) die(`${indexName} 中未找到主 bundle <script> 标签（前缀 ${bn}，已试 ${bundlePatterns.length} 种锚点）`);
 html = html.replace(bundleRe, `<script src="./${injectName}"></script>$1`);
 const newIndexHtml = Buffer.from(html, 'utf8');
 const injectBuf = fs.readFileSync(injectSrc);
@@ -347,7 +359,11 @@ if (exePath) {
     count++;
   }
   if (count === 0) {
-    die(`主程序 ${exePath} 中未找到旧头部哈希——它可能未启用头部完整性校验（无害），或已更新过。请人工确认后去掉 --exe 参数重试。`);
+    /* 旧哈希不在主程序里：多数是该构建未启用 asar 完整性 fuse（哈希未内嵌），跳过即可。
+       若确已启用但存储形式不同，应用会因头部校验失败拒载 → -Rollback 一键还原。
+       此时归档补丁已全部完成并落盘（上面 OK），直接结束，不再动主程序。 */
+    console.log(`[patch-inplace] 警告：主程序 ${exePath} 中未找到旧头部哈希（多半未启用完整性校验），跳过主程序哈希更新`);
+    process.exit(0);
   }
   const exeTmp = exePath + '.zwp-tmp';
   fs.writeFileSync(exeTmp, exeBuf);

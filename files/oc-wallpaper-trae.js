@@ -1,3 +1,4 @@
+/* zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署脚本是否为旧版 */
 /* zcode-wallpaper — 壁纸层 + 界面透明化注入脚本（Trae CN / TRAE SOLO CN 版）
  *
  * 由 apply-patch.ps1 注入到应用主窗口 HTML（workbench.html / solo-lite.html 同目录）。

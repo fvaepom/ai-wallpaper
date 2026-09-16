@@ -17,8 +17,8 @@ foreach ($a in $apps) {
     Write-Host "== 安装 $a ..." -ForegroundColor Cyan
     $out = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'apply-patch.ps1') -App $a 2>&1
     if ($LASTEXITCODE -eq 0) { $ok += $a }
-    elseif (($out | Out-String) -match '未找到 .* 安装目录|MSIX 包') { $skip += $a; Write-Host "   本机未安装，跳过" -ForegroundColor DarkGray }
-    else { $fail += $a; Write-Host ($out | Select-Object -Last 2) -ForegroundColor Yellow }
+    elseif (($out | Out-String) -match '未找到 .*(安装目录|激活版本目录)|MSIX 包') { $skip += $a; Write-Host "   本机未安装，跳过" -ForegroundColor DarkGray }
+    else { $fail += $a; Write-Host ($out | Select-Object -Last 8) -ForegroundColor Yellow }
     Write-Host ""
 }
 

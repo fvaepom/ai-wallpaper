@@ -1,3 +1,4 @@
+/* zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署脚本是否为旧版 */
 /* zcode-wallpaper — 壁纸层 + 界面透明化注入脚本（VS Code 主题变量版，适用于 WorkBuddy 等）
  *
  * 由 apply-patch.ps1 注入到应用主窗口 index.html。

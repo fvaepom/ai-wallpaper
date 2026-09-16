@@ -77,14 +77,13 @@ $Apps = @{
         Lnk         = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\ZCode.lnk"
         Candidates  = @('F:\Program files\ZCode', 'C:\Program files\ZCode',
                         "$env:LOCALAPPDATA\Programs\zcode", "$env:LOCALAPPDATA\Programs\ZCode")
-        # 解包 → 注入 → 重打包（asar 内目录 out\renderer，Tailwind 语义变量透明化）
-        RendererDir = 'out\renderer'
+        # 原地补丁（与 WorkBuddy/OpenCode 同路径，内置 patch-inplace.js 零依赖——
+        # 旧 repack 方案需 npx 联网拉取 @electron/asar，无网/registry 受限的机器直接失败）
+        RendererDir = 'out/renderer'
         InjectSrc   = 'oc-wallpaper.js'
-        Method      = 'repack'
-        # 多锚点回退：应用升级改版后逐个尝试，提高重打成功率
-        BundleRegex = @('(<script type="module" crossorigin src="\./assets/index-[^"]+\.js"></script>)',
-                        '(<script[^>]+type="module"[^>]+src="\./assets/index-[^"]+\.js"[^>]*></script>)',
-                        '(<script[^>]+src="\./assets/index-[^"]+\.js"[^>]*></script>)')
+        Method      = 'inplace'
+        BundleName  = 'index'
+        ExeHash     = $false  # 未启用 asar 完整性 fuse（repack 时代原地改头部即无需动 exe）
     }
     'OpenCode' = @{
         Process     = 'OpenCode'
@@ -133,12 +132,12 @@ $Apps = @{
         # 安装 = 部署启动器 + 建「ChatGPT」快捷方式；商店包若还在，提示先卸载并复制散装目录
         Method      = 'agent'
         AgentFiles  = @('codex-launcher.ps1', 'codex-launcher.vbs')
-        LooseCopy   = 'C:\Users\FVAEP\CodexPatched'
-        Candidates  = @('C:\Users\FVAEP\CodexPatched')
+        LooseCopy   = "$env:USERPROFILE\CodexPatched"
+        Candidates  = @("$env:USERPROFILE\CodexPatched")
         MsixId      = 'OpenAI.Codex'
         # 用户级开始菜单新建「ChatGPT」入口（商店包已卸载，原入口随之消失）；桌面同名入口由安装器同步创建
         AgentLnkNew = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\ChatGPT.lnk"
-        AgentIcon   = 'C:\Users\FVAEP\CodexPatched\app\resources\chatgpt-app-light.ico'
+        AgentIcon   = "$env:USERPROFILE\CodexPatched\app\resources\chatgpt-app-light.ico"
         AgentPorts  = @(19330, 19331, 19332, 19333, 19334)
     }
     'TraeCN' = @{
@@ -337,6 +336,56 @@ function Test-PatchPresent {
     return (Test-AsarPatched $asar)
 }
 
+# 已部署注入脚本是否为旧版（头部无 zwp-ver:2 标记 = 2026-09-16 之前的初版脚本）。
+# 选择器新功能（「界面不透明度」滑杆 --ocwp-ui-alpha、custom.css 热生效等）只在新版脚本上工作，
+# 旧版补丁虽然"完好"但功能缺失（2026-09-16 ZCode 踩坑：滑杆自始无效）。
+# 读不出结果一律返回 $false（不当作旧版），避免结构异常时误报
+function Test-ScriptStale {
+    $mark = 'zwp-ver:2'
+    try {
+        if ($Cfg.Method -eq 'agent') {
+            # 代理型（Codex / 豆包）：补丁 = hub 里的 launcher ps1（CDP 注入脚本内嵌其中）
+            $hub = Join-Path $env:USERPROFILE '.ai-wallpaper'
+            foreach ($f in $Cfg.AgentFiles) {
+                if ($f -like '*.ps1') {
+                    return (-not ([IO.File]::ReadAllText((Join-Path $hub $f)).Contains($mark)))
+                }
+            }
+            return $false
+        }
+        if ($Cfg.Method -eq 'marvis' -or $Cfg.Method -eq 'dsh') {
+            # 内联型（Marvis / DSH）：index.html 全文即脚本
+            $idx = if ($Cfg.Method -eq 'marvis') { Join-Path $Cfg.OfflineDir 'index.html' } else { Join-Path $res $Cfg.ProbeRel }
+            if (-not (Test-Path $idx)) { return $false }
+            return (-not ([IO.File]::ReadAllText($idx).Contains($mark)))
+        }
+        if ($Cfg.Method -eq 'files') {
+            # 散装型（Trae / Reasonix）：优先查 html 同目录的外链注入脚本，无则查 html（内联）
+            $htmlPath = Join-Path $res $Cfg.ProbeRel
+            if (-not (Test-Path $htmlPath)) { return $false }
+            $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($js) { return (-not ([IO.File]::ReadAllText($js.FullName).Contains($mark))) }
+            return (-not ([IO.File]::ReadAllText($htmlPath).Contains($mark)))
+        }
+        # asar 型（ZCode / WorkBuddy / OpenCode / AutoClaw）：头部 JSON 定位 oc-wallpaper.js，读内容头部
+        if (-not (Test-Path $asar)) { return $false }
+        $fs = [IO.File]::OpenRead($asar)
+        try {
+            $br = New-Object IO.BinaryReader($fs)
+            $null = $br.ReadUInt32()          # 头部长度字段（恒为 4）
+            $pickleSize = $br.ReadUInt32()    # 头部 pickle 总大小 → 内容区起点 = 8 + pickleSize
+            $jsonLen = $br.ReadUInt32()       # 头部 JSON 字节数
+            $json = [Text.Encoding]::ASCII.GetString($br.ReadBytes($jsonLen))
+            $m = [regex]::Match($json, '"oc-wallpaper\.js":\{.{0,400}?"offset":\s*"(\d+)"')
+            if (-not $m.Success) { return $false }
+            $fs.Position = 8 + [int64]$pickleSize + [int64]$m.Groups[1].Value
+            $buf = New-Object byte[] 160
+            $null = $fs.Read($buf, 0, 160)
+            return (-not ([Text.Encoding]::ASCII.GetString($buf).Contains($mark)))
+        } finally { $fs.Close() }
+    } catch { return $false }
+}
+
 function Find-Target {
     if ($InstallDir) { return $InstallDir }
     # MSIX 包（Codex）：安装目录在 ACL 保护的 WindowsApps 内且路径带版本号，经 Get-AppxPackage 解析
@@ -355,10 +404,12 @@ function Find-Target {
         Where-Object { $_.Path } | Select-Object -First 1
     if ($proc) {
         $dir = Split-Path $proc.Path
-        if ($dir -and (Test-Path (Join-Path (Join-Path $dir 'resources') $probeRel))) { return $dir }
+        if ($dir -and (Test-Path $dir) -and (Test-Path (Join-Path (Join-Path $dir 'resources') $probeRel))) { return $dir }
     }
-    # 2) 固定候选目录
+    # 2) 固定候选目录（候选里写死了本机盘符如 F:\，目标机器可能没有该盘：
+    #    Test-Path 先行，否则 Join-Path 对不存在的盘抛 DriveNotFound 直接终止脚本）
     foreach ($c in $Cfg.Candidates) {
+        if (-not (Test-Path $c)) { continue }
         if (Test-Path (Join-Path (Join-Path $c 'resources') $probeRel)) { return $c }
     }
     # 3) 开始菜单全量反查（快捷方式被移动/改名后单一路径会失效）
@@ -371,7 +422,7 @@ function Find-Target {
         $sh = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk.FullName)
         if ($sh.TargetPath) {
             $dir = Split-Path $sh.TargetPath
-            if ($dir -and (Test-Path (Join-Path (Join-Path $dir 'resources') $probeRel))) { return $dir }
+            if ($dir -and (Test-Path $dir) -and (Test-Path (Join-Path (Join-Path $dir 'resources') $probeRel))) { return $dir }
         }
     }
     # 4) 注册表卸载信息反查（InstallLocation 指向安装根目录）
@@ -382,7 +433,7 @@ function Find-Target {
         Select-Object -First 1
     if ($hit) {
         $dir = $hit.InstallLocation.TrimEnd('\')
-        if ($dir -and (Test-Path (Join-Path (Join-Path $dir 'resources') $probeRel))) { return $dir }
+        if ($dir -and (Test-Path $dir) -and (Test-Path (Join-Path (Join-Path $dir 'resources') $probeRel))) { return $dir }
     }
     throw "未找到 $App 安装目录，请用 -InstallDir 参数指定。"
 }
@@ -494,7 +545,7 @@ if ($Rollback) {
             }
         } else {
             # 豆包模式：官方快捷方式被改指代理 → 还原为官方启动器
-            $stock = $Cfg.Candidates | Where-Object { Test-Path (Join-Path $_ $Cfg.AgentExe) } | Select-Object -First 1
+            $stock = $Cfg.Candidates | Where-Object { (Test-Path $_) -and (Test-Path (Join-Path $_ $Cfg.AgentExe)) } | Select-Object -First 1
             $restoreTarget = $Cfg.AgentLnkTarget
             if (-not $restoreTarget -and $stock) { $restoreTarget = Join-Path $stock $Cfg.AgentExe }
             $lnkPaths = @($Cfg.Lnk) + @((Join-Path ([Environment]::GetFolderPath('Desktop')) (Split-Path $Cfg.Lnk -Leaf)))
@@ -942,6 +993,10 @@ $already = Test-PatchPresent
 $run = (-not $already -or $Force)
 if ($already -and -not $Force) {
     Write-Ok "$App 已含壁纸补丁，无需重复安装（应用升级覆盖补丁后重新运行本脚本即可修复）"
+    if (Test-ScriptStale) {
+        Write-Warn2 "但注入脚本是旧版（无 zwp-ver:2 标记）：不支持「界面不透明度」滑杆、custom.css 热生效等新功能。"
+        Write-Warn2 "关闭 $App 后加 -Force 重打即可升级脚本（「AI壁纸设置」的一键修复同样有效）。"
+    }
 }
 if ($Cfg.Method -ne 'files' -and $run -and -not (Test-Node)) { throw "未检测到 Node.js，请先安装 Node.js。" }
 
@@ -1106,8 +1161,12 @@ if ($run -and $Cfg.Method -eq 'files') {
             $chunks = @($Cfg.BridgeChunk)
             $resolved = ''
             foreach ($ch in $chunks) {
-                $raw = (& node (Join-Path $Script:RepoFiles 'patch-inplace.js') --resolve $asar $Cfg.BridgeDir $ch 2>&1 |
-                        Out-String)
+                # PS5.1 的 EAP=Stop 会把 2>&1 捕获的 stderr 行升级为终止错误 → 局部降级再捕获
+                $prevEap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+                try {
+                    $raw = (& node (Join-Path $Script:RepoFiles 'patch-inplace.js') --resolve $asar $Cfg.BridgeDir $ch 2>&1 |
+                            Out-String)
+                } finally { $ErrorActionPreference = $prevEap }
                 if ($LASTEXITCODE -ne 0) { continue }
                 $m = [regex]::Match([string]$raw, [regex]::Escape($ch) + '[A-Za-z0-9._\-]*\.js')
                 if ($m.Success) { $resolved = ($Cfg.BridgeDir + '/' + $m.Value); break }
@@ -1131,11 +1190,20 @@ if ($run -and $Cfg.Method -eq 'files') {
         $outAsar = Join-Path $env:TEMP ("zwp-out-" + [guid]::NewGuid().ToString('N').Substring(0, 8) + ".asar")
         $nodeArgs += @('--out', $outAsar)
     }
-    & node @nodeArgs
+    # PS5.1 的 EAP=Stop 会把 2>&1 捕获的 stderr 行升级为终止错误 → 局部降级；
+    # Tee-Object 保留实时输出，失败时把 node 报错末段带进异常（不再只抛一句「原地补丁失败」）
+    $nodeOut = @()
+    $prevEap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { & node @nodeArgs 2>&1 | Tee-Object -Variable nodeOut | Out-Host }
+    finally { $ErrorActionPreference = $prevEap }
     if ($LASTEXITCODE -ne 0) {
         Remove-Item $injectFile -Force -ErrorAction SilentlyContinue
         if ($outAsar) { Remove-Item $outAsar -Force -ErrorAction SilentlyContinue }
-        throw "原地补丁失败"
+        # patch-inplace 中途失败/被杀时会在原目录留下 .zwp-tmp 临时产物（可能几百 MB）→ 清掉
+        Remove-Item ($asar + '.zwp-tmp') -Force -ErrorAction SilentlyContinue
+        if ($Cfg.ExeHash) { Remove-Item (Join-Path $target ($Cfg.Process + '.exe.zwp-tmp')) -Force -ErrorAction SilentlyContinue }
+        $tail = (@($nodeOut) | ForEach-Object { "$_" } | Select-Object -Last 6) -join "`n"
+        throw ("原地补丁失败，node 输出末段：`n" + $tail)
     }
     if ($outAsar) {
         Write-Step "覆写原版 app.asar（文件内容替换）"
@@ -1178,8 +1246,15 @@ if ($run -and $Cfg.Method -eq 'files') {
     # ZCode：解包 → 注入 → 重打包 → 校验原生模块外置清单
     $tmp = Join-Path $env:TEMP ("zwp-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     Write-Step "解包 app.asar"
-    & npx --yes @electron/asar extract $asar $tmp | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "asar 解包失败" }
+    # EAP=Stop 下 2>&1 会把 stderr 升级为终止错误 → 局部降级；失败时带上 npx 报错末段
+    $prevEap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { & npx --yes @electron/asar extract $asar $tmp 2>&1 | Tee-Object -Variable npxOut | Out-Host }
+    finally { $ErrorActionPreference = $prevEap }
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        $tail = (@($npxOut) | ForEach-Object { "$_" } | Select-Object -Last 4) -join "`n"
+        throw ("asar 解包失败（npx 输出末段；最常见原因是无网络拉取不到 @electron/asar）：`n" + $tail)
+    }
 
     $renderer = Join-Path $tmp $Cfg.RendererDir
     if (-not (Test-Path (Join-Path $renderer 'index.html'))) {
@@ -1211,8 +1286,14 @@ if ($run -and $Cfg.Method -eq 'files') {
 
     $newAsar = Join-Path $env:TEMP ("zwp-" + [guid]::NewGuid().ToString('N').Substring(0, 8) + ".asar")
     Write-Step "重新打包 asar"
-    & npx --yes @electron/asar pack $tmp $newAsar --unpack '**/*.{node,dll,exe}' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "asar 打包失败" }
+    $prevEap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { & npx --yes @electron/asar pack $tmp $newAsar --unpack '**/*.{node,dll,exe}' 2>&1 | Tee-Object -Variable npxOut2 | Out-Host }
+    finally { $ErrorActionPreference = $prevEap }
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        $tail = (@($npxOut2) | ForEach-Object { "$_" } | Select-Object -Last 4) -join "`n"
+        throw ("asar 打包失败（npx 输出末段）：`n" + $tail)
+    }
 
     Write-Step "校验原生模块外置清单"
     $oldList = Get-ChildItem (Join-Path $res 'app.asar.unpacked') -Recurse -File |
@@ -1360,20 +1441,39 @@ if (-not $NoShortcut) {
         Write-Warn2 "未找到 exe 启动器（AI壁纸设置.exe），快捷方式退回 cmd 入口"
         $lnkTarget = $launcher
     }
+    # 快捷方式偶发 COMException（刚写完的 .lnk 被 Explorer/索引器瞬时握住）：删旧重写 + 重试；
+    # 快捷方式失败不判补丁失败（壁纸补丁在此之前已完成）
+    $selectorFail = @()
     foreach ($base in @([Environment]::GetFolderPath('Desktop'), "$env:APPDATA\Microsoft\Windows\Start Menu\Programs")) {
         # 清理旧版分应用选择器快捷方式
         foreach ($old in @('ZCode壁纸选择器', 'WorkBuddy壁纸选择器', 'OpenCode壁纸选择器')) {
             $oldLnk = Join-Path $base ($old + '.lnk')
             if (Test-Path $oldLnk) { Remove-Item $oldLnk -Force -ErrorAction SilentlyContinue }
         }
-        $ws = New-Object -ComObject WScript.Shell
-        $lnk = $ws.CreateShortcut((Join-Path $base 'AI壁纸设置.lnk'))
-        $lnk.TargetPath = $lnkTarget
-        $lnk.WorkingDirectory = $hub
-        $lnk.IconLocation = "$hub\app.ico,0"
-        $lnk.Save()
+        $lnkPath = Join-Path $base 'AI壁纸设置.lnk'
+        $done = $false
+        for ($i = 1; $i -le 3 -and -not $done; $i++) {
+            try {
+                if (Test-Path $lnkPath) { Remove-Item $lnkPath -Force -ErrorAction SilentlyContinue }
+                $ws = New-Object -ComObject WScript.Shell
+                $lnk = $ws.CreateShortcut($lnkPath)
+                $lnk.TargetPath = $lnkTarget
+                $lnk.WorkingDirectory = $hub
+                $lnk.IconLocation = "$hub\app.ico,0"
+                $lnk.Save()
+                $done = $true
+            } catch {
+                Write-Warn2 "快捷方式写入失败（第 $i 次，$lnkPath）：$($_.Exception.Message)"
+                Start-Sleep -Seconds 1
+            }
+        }
+        if (-not $done) { $selectorFail += $lnkPath }
     }
-    Write-Ok "桌面 + 开始菜单快捷方式已创建（AI壁纸设置）"
+    if ($selectorFail.Count) {
+        Write-Warn2 "快捷方式未能全部创建（壁纸补丁本身不受影响）；重跑「安装补丁.cmd」或本脚本可再试"
+    } else {
+        Write-Ok "桌面 + 开始菜单快捷方式已创建（AI壁纸设置）"
+    }
 }
 
 Write-Host ""

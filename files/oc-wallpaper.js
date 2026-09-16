@@ -1,3 +1,5 @@
+/* zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署脚本是否为旧版（旧版不支持
+   --ocwp-ui-alpha 不透明度滑杆、custom.css 热重载等，见 README「注入脚本版本」）*/
 /* ai-wallpaper — 壁纸层 + 界面透明化注入脚本
  *
  * 由 apply-patch.ps1 注入到应用主窗口 index.html。

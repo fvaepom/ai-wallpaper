@@ -1,4 +1,5 @@
-﻿# codex-launcher.ps1 - Codex desktop (loose copy) wallpaper launcher + CDP injection agent
+﻿# zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署代理是否为旧版
+# codex-launcher.ps1 - Codex desktop (loose copy) wallpaper launcher + CDP injection agent
 #
 # Codex desktop (OpenAI.Codex MSIX -> loose copy at CodexPatched) renders its UI on an
 # app:// page. Serving wallpapers via wp:// protocol bridge is blocked by the newer

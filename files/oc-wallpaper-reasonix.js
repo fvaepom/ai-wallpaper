@@ -1,3 +1,4 @@
+/* zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署脚本是否为旧版 */
 /* ai-wallpaper — 壁纸层 + 界面透明化注入脚本（Reasonix 专用变体）
  *
  * 由 apply-patch.ps1 注入到 Reasonix 桌面壳主窗口页面（versions\<版本>\app\resources\app\index.html，

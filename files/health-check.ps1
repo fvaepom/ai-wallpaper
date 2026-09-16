@@ -69,6 +69,31 @@ function Test-AsarPatched([string]$path) {
     return ([Text.Encoding]::ASCII.GetString($buf, 0, $read).Contains('oc-wallpaper'))
 }
 
+# 已部署注入脚本是否含版本标记 zwp-ver:（无标记 = 旧版初版脚本，不支持不透明度滑杆等新功能）。
+# 读不到（结构异常等）一律 $true，避免把"查不了"误报成旧版
+function Test-TextHasVer([string]$path) {
+    try { return ([IO.File]::ReadAllText($path).Contains('zwp-ver:2')) } catch { return $true }
+}
+function Test-AsarScriptCurrent([string]$asar) {
+    # 从 asar 头部 JSON 定位 oc-wallpaper.js 的 offset（文件名在归档内唯一），读前 160 字节查标记
+    try {
+        $fs = [IO.File]::OpenRead($asar)
+        try {
+            $br = New-Object IO.BinaryReader($fs)
+            $null = $br.ReadUInt32()          # 头部长度字段（恒为 4）
+            $pickleSize = $br.ReadUInt32()    # 头部 pickle 总大小 → 内容区起点 = 8 + pickleSize
+            $jsonLen = $br.ReadUInt32()       # 头部 JSON 字节数
+            $json = [Text.Encoding]::ASCII.GetString($br.ReadBytes($jsonLen))
+            $m = [regex]::Match($json, '"oc-wallpaper\.js":\{.{0,400}?"offset":\s*"(\d+)"')
+            if (-not $m.Success) { return $true }
+            $fs.Position = 8 + [int64]$pickleSize + [int64]$m.Groups[1].Value
+            $buf = New-Object byte[] 160
+            $null = $fs.Read($buf, 0, 160)
+            return ([Text.Encoding]::ASCII.GetString($buf).Contains('zwp-ver:2'))
+        } finally { $fs.Close() }
+    } catch { return $true }
+}
+
 function Resolve-Asar($a) {
     if ($a.MsixId) {
         $pkg = Get-AppxPackage -Name $a.MsixId -ErrorAction SilentlyContinue
@@ -89,7 +114,8 @@ function Resolve-Asar($a) {
     return $null
 }
 
-# 返回 ok（补丁在）/ missing（未安装，跳过）/ broken（已安装但补丁失效）
+# 返回 ok（补丁在且脚本为当前版）/ missing（未安装，跳过）/ broken（已安装但补丁失效）/
+# stale（补丁在但注入脚本为旧版：Report 可见，自动修复跳过——升级需关应用，交给选择器一键修复）
 function Test-AppHealth($a) {
     try {
         if ($a.Kind -eq 'agent') {
@@ -99,11 +125,13 @@ function Test-AppHealth($a) {
                 if (-not $installed) { return 'missing' }
             }
             foreach ($f in $a.AgentFiles) { if (-not (Test-Path (Join-Path $Hub $f))) { return 'broken' } }
+            foreach ($f in $a.AgentFiles) { if ($f -like '*.ps1' -and -not (Test-TextHasVer (Join-Path $Hub $f))) { return 'stale' } }
             return 'ok'
         }
         if ($a.Kind -eq 'marvis') {
             if (-not (Test-Path $a.OfflineIndex)) { return 'missing' }
             if ([IO.File]::ReadAllText($a.OfflineIndex) -notmatch 'oc-wallpaper') { return 'broken' }
+            if (-not (Test-TextHasVer $a.OfflineIndex)) { return 'stale' }
             return 'ok'
         }
         if ($a.Kind -eq 'dsh') {
@@ -120,6 +148,7 @@ function Test-AppHealth($a) {
             }
             if (-not $htmlPath) { return 'missing' }
             if ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') { return 'broken' }
+            if (-not (Test-TextHasVer $htmlPath)) { return 'stale' }
             return 'ok'
         }
         if ($a.Kind -eq 'reasonix') {
@@ -135,6 +164,9 @@ function Test-AppHealth($a) {
             }
             if (-not $htmlPath) { return 'missing' }
             if ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') { return 'broken' }
+            $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($js) { if (-not (Test-TextHasVer $js.FullName)) { return 'stale' } }
+            elseif (-not (Test-TextHasVer $htmlPath)) { return 'stale' }
             return 'ok'
         }
         if ($a.Kind -eq 'files') {
@@ -148,12 +180,15 @@ function Test-AppHealth($a) {
             $mainJs = Join-Path (Join-Path $root 'resources') 'app\out\main.js'
             if (-not (Test-Path $mainJs)) { return 'broken' }
             if ([IO.File]::ReadAllText($mainJs) -notmatch 'zcode-wallpaper bridge') { return 'broken' }
+            $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($js) { if (-not (Test-TextHasVer $js.FullName)) { return 'stale' } }
             return 'ok'
         }
         $asarPath = Resolve-Asar $a
         if (-not $asarPath) { return 'missing' }
-        if (Test-AsarPatched $asarPath) { return 'ok' }
-        return 'broken'
+        if (-not (Test-AsarPatched $asarPath)) { return 'broken' }
+        if (-not (Test-AsarScriptCurrent $asarPath)) { return 'stale' }
+        return 'ok'
     } catch { Log ('probe ' + $a.App + ' error: ' + $_.Exception.Message); return 'unknown' }
 }
 
@@ -190,7 +225,15 @@ foreach ($a in $Apps) {
     $results += @{ App = $a.App; Status = $st; Cfg = $a }
     Log ($a.App + ' -> ' + $st)
 }
-if ($Report) { $results | ForEach-Object { Write-Host ($_.App + ': ' + $_.Status) }; exit 0 }
+if ($Report) {
+    $results | ForEach-Object { Write-Host ($_.App + ': ' + $_.Status) }
+    $stale = @($results | Where-Object { $_.Status -eq 'stale' })
+    if ($stale.Count -gt 0) {
+        Write-Host ('stale = 注入脚本为旧版（不支持「界面不透明度」滑杆、custom.css 热生效等新功能）：' + (($stale | ForEach-Object { $_.App }) -join '、'))
+        Write-Host '关闭对应应用后运行 apply-patch.ps1 -App <应用> -Force，或在「AI壁纸设置」点一键修复'
+    }
+    exit 0
+}
 
 $broken = @($results | Where-Object { $_.Status -eq 'broken' })
 if ($broken.Count -eq 0) { exit 0 }

@@ -8,6 +8,7 @@
 - 🌌 未设置壁纸时显示内置的**动态极光渐变**兜底
 - 🪟 自动把界面面板改为半透明"玻璃"效果，弹窗保持高不透明度保证可读
 - 🖱️ 现代 GUI 壁纸选择器（深色圆角界面、实时预览、拖拽导入）
+- 🌐 **中英双语界面**：选择器标题栏「EN / 中」一键切换，全窗即时生效并记住选择；首次启动未选择时自动跟随 Windows 区域语言
 - 📚 **壁纸库**：设置过的壁纸全部保留，缩略图网格管理，随时一键切回
 - 🔄 **自动轮换**：勾选后每次打开应用自动换用库中勾选的下一张壁纸，重启进度不丢
 - 🤖 **AI 生成壁纸**：内置「AI 生成」页，调用豆包 Seedream 图像生成（火山方舟 API），输入描述直接生成壁纸并入库，一键换上
@@ -27,6 +28,7 @@
 - 🌌 Built-in animated aurora gradient as the fallback when no wallpaper is set
 - 🪟 Panels automatically turn into translucent "frosted glass" while dialogs stay opaque for readability
 - 🖱️ Modern GUI wallpaper picker (dark UI, live preview, drag & drop import)
+- 🌐 **Bilingual UI (English / Chinese)**: one click on the “EN / 中” button in the picker's title bar switches the whole window instantly and the choice is remembered; defaults to the Windows locale on first launch
 - 📚 Built-in wallpaper library with thumbnail grid and one-click restore
 - 🔄 Auto-rotate: cycle through selected wallpapers on every app launch
 - 🤖 AI-generated wallpapers (Doubao Seedream) straight from the picker
@@ -199,6 +201,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App WorkB
 ## 调整透明度
 
 编辑 `%USERPROFILE%\.zcode\wallpaper\custom.css`（文件内有注释模板），改动会在下一次标记刷新时自动重载（几秒内）。删除该文件即恢复默认值。
+
+「AI壁纸设置」顶部的**界面不透明度**滑杆按应用独立设置：写入 custom.css 的 `--ocwp-ui-alpha` 变量并自动写 refresh 标记，几秒内热生效（滑杆语义：越高界面越实）。
+
+## 注入脚本版本（zwp-ver）
+
+每份注入脚本源（`files\oc-wallpaper*.js`、`zwp-wallpaper-*.js`、codex/doubao launcher）头部带
+`zwp-ver:2` 版本标记；体检与 apply-patch 据此识别**已部署脚本是否为旧版**：
+
+- 背景（2026-09-16 踩坑）：ZCode asar 里一直是 9/13 初版脚本——不消费 `--ocwp-ui-alpha`、
+  不热重载 custom.css → 选择器的「界面不透明度」滑杆对 ZCode 自始无效，而 apply-patch 的
+  幂等检测只看注入行是否存在，旧脚本永远不会被升级。此前 refresh 标记 1..3/1..5 的
+  兼容处理是同一"选择器进化、已部署脚本停在旧版"错位的另一症状
+- 检测：asar 型经头部 JSON 定位归档内 `oc-wallpaper.js` 读其头部（无需解包）；
+  散装/内联/代理型直接读部署文件文本。**无标记 = stale**
+- stale 的表现：`health-check -Report` 显示 `stale`（`-Silent` 计划任务不自动升级，避免
+  突袭重启应用）；「AI壁纸设置」将其列为 ⚠ 失效项，一键修复（关闭应用 → `-Force` 重打 →
+  询问重启）即可升级；`apply-patch` 幂等跳过时也会打印旧版警告
+- 脚本有功能变更时，把全部源文件头部的 `zwp-ver:2` 与上述检测里的 `$mark`/`Contains('zwp-ver:2')`
+  同步递增
+- 一次性升级工具：`scripts\upgrade-zcode-once.ps1`（等待目标应用退出 → `-Force` 重打 → 自动重启）
 
 ## 卸载 / 回滚
 
