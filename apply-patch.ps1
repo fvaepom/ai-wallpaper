@@ -1362,6 +1362,20 @@ if (-not (Test-Path $customCss)) {
     Write-Ok "壁纸目录已创建: $wallDir"
 }
 
+# WorkBuddy 专属默认：对话窗口去白遮罩。.conversation-shell 自带 var(--wb-home-bg-secondary) 背景，
+# 与 .teams-container 的半透明白叠成两层 → 点进对话右侧明显比别处白；置透明后只剩全局一层，
+# 深浅仍由「AI壁纸设置」的不透明度滑杆控制。旧机器已存在的 custom.css 缺这条时自动补写
+# → 重跑安装器/「安装补丁.cmd」即修复，选择器滑杆只重写 ocwp-alpha 托管块，不会冲掉它。
+if ($App -eq 'WorkBuddy') {
+    $text = ''
+    if (Test-Path $customCss) { $text = [IO.File]::ReadAllText($customCss) }
+    if ($text -notmatch 'conversation-shell') {
+        $fix = "`r`n/* 对话窗口去白遮罩：与全局半透明白叠两层 → 点进对话右侧明显更白；置透明只留全局一层 */`r`n.conversation-shell { background: transparent !important; }`r`n"
+        [IO.File]::WriteAllText($customCss, $text.TrimEnd() + $fix, [Text.UTF8Encoding]::new($true))
+        Write-Ok "已写入对话窗口去白遮罩规则: $customCss"
+    }
+}
+
 # 统一选择器：装到中心目录 %USERPROFILE%\.ai-wallpaper，单一「AI壁纸设置」快捷方式，
 # 可同时管理多个已打补丁的应用（同步/独立模式）
 $hub        = Join-Path $env:USERPROFILE '.ai-wallpaper'

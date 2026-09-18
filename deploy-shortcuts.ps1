@@ -42,7 +42,7 @@ Save-Shortcut (Join-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" '�
 $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ai-wallpaper'
 $null = New-Item -Path $key -Force
 Set-ItemProperty $key -Name DisplayName         -Value 'ai-wallpaper（AI 壁纸）'
-Set-ItemProperty $key -Name DisplayVersion      -Value '1.0.6'
+Set-ItemProperty $key -Name DisplayVersion      -Value '1.0.7'
 Set-ItemProperty $key -Name Publisher           -Value 'ai-wallpaper'
 Set-ItemProperty $key -Name DisplayIcon         -Value (Join-Path $hub 'app.ico')
 Set-ItemProperty $key -Name UninstallString     -Value ('cmd.exe /c "' + (Join-Path $hub '卸载.cmd') + '"')

@@ -420,6 +420,16 @@ Electron 的 asar 本质是一个打包格式，任何 Electron 应用的 HTML �
   删除 codex-launcher 内嵌但从未启动的回环媒体服务器（约 70 行）；修正 Codex 启动器乱码的
   base64 中文串、Marvis/Reasonix 注入脚本描述旧方案的失实注释。
 
+## 2026-09-17 · WorkBuddy 对话窗口去白遮罩
+
+点进对话后右侧窗口比别处白一层：`.conversation-shell` 自带 `var(--wb-home-bg-secondary)` 背景，
+与 `.teams-container` 的半透明白**叠成两层**（各 25% 时叠加约 44% 白）。apply-patch 现在给
+WorkBuddy 装机时会在 `custom.css` 写入并确保存在
+`.conversation-shell { background: transparent !important; }`——对话窗口只剩全局那一层半透明白，
+深浅仍由「界面不透明度」滑杆控制。写入是幂等的：全新装机随模板补齐；**旧机器已存在的
+custom.css 缺这条时自动追加**（重跑安装器 / 「安装补丁.cmd」即修复），选择器滑杆只重写
+ocwp-alpha 托管块、不会冲掉它。安装包随之重构建为 v1.0.7。
+
 ## 许可
 
 本项目注入文件以 [MIT](LICENSE) 许可发布。ZCode / OpenCode 是其各自所有者的产品，本项目与其无隶属关系。
