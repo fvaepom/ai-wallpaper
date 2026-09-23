@@ -17,6 +17,9 @@
 #   DeepSeek Harness: powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App DeepSeekHarness
 #              （开源 DSH Desktop 的回环前端页内联补丁 + 回环媒体服务，同 Marvis 架构；
 #               不需要 Node、免关应用；应用升级覆盖补丁后重跑即可）
+#   Qoder:     powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App Qoder
+#              （Qoder CN = Electron+Vite 壳，与 OpenCode 同款 asar 原地补丁 + wp:// 协议桥 + 页内 CSP 放宽；
+#               需要 Node，执行时 Qoder 必须完全退出；应用升级（含 fast-update）覆盖补丁后重跑即可）
 #   回滚:      powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 [-App <名称>] -Rollback
 #   升级后修复: 应用更新会覆盖补丁文件；重新运行与安装相同的命令即可——脚本自动识别安装目录、
 #              检测到补丁仍在时直接跳过（幂等），补丁丢失时自动重打。「AI壁纸设置」的一键修复即调用本脚本。
@@ -200,6 +203,25 @@ $Apps = @{
         RequireAdmin = $true
         StopRunning  = $true
     }
+    'AutoClaw2' = @{
+        Process     = 'AutoClaw2'
+        WallDir     = Join-Path $env:APPDATA 'AutoClaw-official\wallpaper'
+        Lnk         = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoClaw.lnk"
+        Candidates  = @('F:\AIcodeprogram\AUTOCLAW\AutoClaw2')
+        # AutoClaw2（2026-09-22 起，v42.6.1）：同厂新版独立安装，与旧版并存（两个开始菜单入口同名
+        # 「AutoClaw」，用户级那个指向本版）。彻底重构：app 从 asar 改为散装 resources\app 目录，
+        # 渲染器入口 dist\renderer\zwork.html（Vite，无 CSP meta），主窗口仍 loadFile（file://）加载
+        # → 与 Trae 系同款 files 打法，无需协议桥。皮肤令牌体系未变（--theme-* / body[data-skin]
+        # [data-theme]）→ 直接复用 oc-wallpaper-autoclaw.js，仅 __WALLPAPER_DIR__ 占位符按本档案替换
+        ProbeRel    = 'app\dist\renderer\zwork.html'
+        InjectSrc   = 'oc-wallpaper-autoclaw.js'
+        Method      = 'files'
+        InjectBefore = @('<script type="module" crossorigin src="./assets/zwork-')
+        RelaxCsp    = $false
+        # 与旧版同为管理员权限常驻进程：杀进程需提权
+        RequireAdmin = $true
+        StopRunning  = $true
+    }
     'Doubao' = @{
         Process     = 'Doubao'
         WallDir     = Join-Path $env:USERPROFILE '.doubao\wallpaper'
@@ -281,6 +303,35 @@ $Apps = @{
         MediaPort   = 19399
         MediaServer = 'zwp-media-server.ps1'
         MediaTask   = 'AI壁纸媒体服务'
+    }
+    'Qoder' = @{
+        Process     = 'Qoder CN'
+        WallDir     = Join-Path $env:USERPROFILE '.qoder\wallpaper'
+        Lnk         = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Qoder CN.lnk"
+        Candidates  = @('F:\AIcodeprogram\Qoder CN', 'C:\Program files\Qoder CN',
+                        'F:\Program files\Qoder CN', "$env:LOCALAPPDATA\Programs\Qoder CN",
+                        "$env:LOCALAPPDATA\Programs\Qoder")
+        # Qoder 桌面端（Electron + Vite/React 前端，归档内 out\renderer 与 ZCode 同款布局）：
+        # 主窗口经自有特权协议加载（qoder-cn-app://renderer/index.html，国际版为 qoder-app://），
+        # Chromium 禁止该页读 file:// 子资源 → 与 OpenCode 同款 wp:// 协议桥（--also-patch 主进程）。
+        # 该页 index.html 自带 CSP（default-src 'self' 且无 media-src）→ --relax-csp 放行 wp:。
+        # fuse 实测（2026-09-24 修正）：asar 完整性校验为【开启】——首发打完补丁启动即
+        # FATAL asar_util.cc Integrity check failed（exe 内嵌原始头部哈希，ASCII hex 一处），
+        # 故 ExeHash=$true 同步改写主程序内嵌哈希（备份 Qoder CN.exe.zwp-backup，回滚自动还原）。
+        # onlyLoadAppFromAsar 开启（resources\app 散装目录被忽略，必须改 asar）；
+        # unpacked 只有 sharp 的 dll/node。
+        # 透明化：界面色值令牌为构建期混淆名（--q90ff1d 之类，升级即变），不做令牌覆盖，
+        # 走 Marvis/Reasonix 的运行时大块扫描（alpha 由「界面不透明度」滑杆驱动）
+        RendererDir = 'out/renderer'
+        InjectSrc   = 'oc-wallpaper-qoder.js'
+        Method      = 'inplace'
+        BundleName  = 'index'
+        ExeHash     = $true
+        WallUrl     = 'wp://local'
+        MainBridge  = $true
+        SchemeFind     = 'wp-scheme-find-qoder.txt'
+        SchemeReplace  = 'wp-scheme-replace-qoder.txt'
+        RelaxCsp       = $true
     }
 }
 if (-not $Apps.ContainsKey($App)) {
@@ -1151,6 +1202,10 @@ if ($run -and $Cfg.Method -eq 'files') {
         Write-Step "原地补丁 app.asar + 更新主程序内嵌头部哈希"
     } else {
         Write-Step "原地补丁 app.asar"
+    }
+    if ($Cfg.RelaxCsp) {
+        # 归档内 index.html 自带 CSP（default-src 'self'）→ 追加 wp: 放行壁纸子资源
+        $nodeArgs += '--relax-csp'
     }
     if ($Cfg.MainBridge) {
         # 主进程桥（OpenCode / Codex）：wp:// 协议服务壁纸目录，绕过自定义协议页面对 file:// 的拦截

@@ -40,10 +40,13 @@ $Apps = @(
     @{ App = 'TraeCN';     Kind = 'files'; Process = 'Trae CN';      Html = 'app\out\vs\code\electron-browser\workbench\workbench.html'; Candidates = @('F:\AIcodeprogram\Trae CN', "$env:LOCALAPPDATA\Programs\Trae CN") },
     @{ App = 'TraeWorkCN'; Kind = 'files'; Process = 'TRAE SOLO CN'; Html = 'app\out\vs\code\electron-browser\solo\solo-lite.html';      Candidates = @('F:\AIcodeprogram\TRAE SOLO CN', "$env:LOCALAPPDATA\Programs\TRAE SOLO CN") },
     @{ App = 'AutoClaw';   Kind = 'asar';  Process = 'AutoClaw';     Candidates = @('F:\AIcodeprogram\AUTOCLAW', 'C:\Program files\AutoClaw', "$env:LOCALAPPDATA\Programs\AutoClaw") },
+    # AutoClaw2（v42.6.1 新版，散装 resources\app）：files 打法无主进程桥 → NoBridge 跳过桥检查
+    @{ App = 'AutoClaw2';  Kind = 'files'; Process = 'AutoClaw2';    Html = 'app\dist\renderer\zwork.html'; NoBridge = $true; Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoClaw.lnk"; Candidates = @('F:\AIcodeprogram\AUTOCLAW\AutoClaw2') },
     @{ App = 'Doubao';     Kind = 'agent'; Process = 'Doubao';       AgentFiles = @('doubao-launcher.ps1', 'doubao-launcher.vbs') },
     @{ App = 'Marvis';     Kind = 'marvis'; Process = 'Marvis';      OfflineIndex = "$env:APPDATA\Tencent\Marvis\marvis-offline-page\using\index.html" },
     @{ App = 'Reasonix';   Kind = 'reasonix'; Process = 'Reasonix';  Html = 'app\index.html'; Candidates = @('F:\AIcodeprogram\Reasonix', 'C:\Program files\Reasonix', "$env:LOCALAPPDATA\Programs\Reasonix") },
-    @{ App = 'DeepSeekHarness'; Kind = 'dsh'; Process = 'DSH Desktop'; Html = 'app\node_modules\@deepseek-ai\dsh-web-frontend\dist\index.html'; Candidates = @("$env:LOCALAPPDATA\Programs\DSH Desktop") }
+    @{ App = 'DeepSeekHarness'; Kind = 'dsh'; Process = 'DSH Desktop'; Html = 'app\node_modules\@deepseek-ai\dsh-web-frontend\dist\index.html'; Candidates = @("$env:LOCALAPPDATA\Programs\DSH Desktop") },
+    @{ App = 'Qoder';      Kind = 'asar';  Process = 'Qoder CN';     Candidates = @('F:\AIcodeprogram\Qoder CN', 'C:\Program files\Qoder CN', 'F:\Program files\Qoder CN', "$env:LOCALAPPDATA\Programs\Qoder CN") }
 )
 
 function Log([string]$msg) {
@@ -177,9 +180,11 @@ function Test-AppHealth($a) {
             }
             if (-not $htmlPath) { return 'missing' }
             if ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') { return 'broken' }
-            $mainJs = Join-Path (Join-Path $root 'resources') 'app\out\main.js'
-            if (-not (Test-Path $mainJs)) { return 'broken' }
-            if ([IO.File]::ReadAllText($mainJs) -notmatch 'zcode-wallpaper bridge') { return 'broken' }
+            if (-not $a.NoBridge) {
+                $mainJs = Join-Path (Join-Path $root 'resources') 'app\out\main.js'
+                if (-not (Test-Path $mainJs)) { return 'broken' }
+                if ([IO.File]::ReadAllText($mainJs) -notmatch 'zcode-wallpaper bridge') { return 'broken' }
+            }
             $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($js) { if (-not (Test-TextHasVer $js.FullName)) { return 'stale' } }
             return 'ok'

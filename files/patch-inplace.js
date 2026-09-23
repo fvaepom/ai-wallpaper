@@ -18,8 +18,11 @@
  * 用法：
  *   node patch-inplace.js <app.asar> <renderer目录> <index.html名> <注入js文件名> <注入js源文件> [bundle前缀]
  *                          [--exe <主程序路径>]
+ *                          [--relax-csp]
  *                          [--also-patch <归档内文件路径> <查找正则文件> <替换文本文件> <追加文本文件>]
  *   bundle前缀：主 bundle 文件名前缀（默认 index，OpenCode 桌面端为 main）
+ *   --relax-csp：给 index.html 的内联 CSP 追加 wp:（Qoder 主窗口页 default-src 'self'
+ *                会拦掉 wp:// 壁纸的图片/视频/样式表，与 --also-patch 协议桥配套使用）
  *   --also-patch：对归档内另一个文件做"正则替换(必须恰好1处) + 末尾追加文本"，
  *                 内容同样写到归档尾部并更新条目 integrity（OpenCode 主进程 wp:// 桥用）
  *   node patch-inplace.js --stat <app.asar>
@@ -112,7 +115,7 @@ const resolveMode = args[0] === '--resolve';
 /* --out <路径>：补丁结果写到指定路径、不替换原文件（MSIX 包目录内新建文件会被拒，
    由调用方拿到输出后覆写原 asar 的文件内容） */
 let outPath = null;
-let positional = [], exePath = null, alsoPatch = null;
+let positional = [], exePath = null, alsoPatch = null, relaxCsp = false;
 if (statOnly) {
   positional = [args[1]];
 } else if (resolveMode) {
@@ -120,6 +123,7 @@ if (statOnly) {
 } else {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--exe') { exePath = args[++i]; continue; }
+    if (args[i] === '--relax-csp') { relaxCsp = true; continue; }
     if (args[i] === '--out') { outPath = args[++i]; continue; }
     if (args[i] === '--also-patch') {
       alsoPatch = { relPath: args[++i], findFile: args[++i], replaceFile: args[++i], appendFile: args[++i] };
@@ -203,6 +207,37 @@ for (const p of bundlePatterns) {
 }
 if (!bundleRe) die(`${indexName} 中未找到主 bundle <script> 标签（前缀 ${bn}，已试 ${bundlePatterns.length} 种锚点）`);
 html = html.replace(bundleRe, `<script src="./${injectName}"></script>$1`);
+
+/* ── 可选：放宽 index.html 内联 CSP，放行 wp:// 壁纸子资源 ──
+   Qoder 等自定义协议壳的主窗口页带 <meta http-equiv="Content-Security-Policy">，
+   default-src 'self' 会拦掉 wp:// 的图片/视频/样式表（自定义协议页同样拦 file://）。
+   只在已存在的指令后追加 wp:，指令缺失时才新增（CSP 同名指令重复出现时 Chromium 取
+   首个，追加而非重复才可靠）。 */
+function relaxCspMeta(text) {
+  const re = /(<meta[^>]*http-equiv="Content-Security-Policy"[^>]*content=")([^"]*)(")/i;
+  const m = text.match(re);
+  if (!m) die('--relax-csp：index.html 中未找到 Content-Security-Policy meta');
+  let csp = m[2];
+  const addSource = (dir, extra) => {
+    const dRe = new RegExp('\\b' + dir + '\\b([^;]*)');
+    if (dRe.test(csp)) {
+      csp = csp.replace(dRe, (all, body) =>
+        /(^|\s)wp:(?![a-zA-Z0-9_-])/.test(body) ? all : dir + body.replace(/\s*$/, '') + ' ' + extra);
+      return;
+    }
+    if (!/;\s*$/.test(csp)) csp += ';';
+    csp += ' ' + dir + ' ' + extra + ';';
+  };
+  addSource('img-src', 'wp:');
+  addSource('media-src', "'self' wp:");
+  addSource('style-src', 'wp:');
+  return text.replace(re, m[1] + csp + m[3]);
+}
+if (relaxCsp) {
+  html = relaxCspMeta(html);
+  console.log('[patch-inplace] CSP 已放宽（img/media/style-src 放行 wp:）');
+}
+
 const newIndexHtml = Buffer.from(html, 'utf8');
 const injectBuf = fs.readFileSync(injectSrc);
 

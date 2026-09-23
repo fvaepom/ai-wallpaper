@@ -2,7 +2,7 @@
 
 # ai-wallpaper 🖼️
 
-为 **ZCode 等 11 个主流 AI 桌面应用**注入**动态壁纸背景**的社区补丁，配套统一壁纸管理器「AI 壁纸设置」（另含经 Windows Terminal 承载的 **PowerShell / CMD** 零补丁目标）：
+为 **ZCode 等 13 个主流 AI 桌面应用**注入**动态壁纸背景**的社区补丁，配套统一壁纸管理器「AI 壁纸设置」（另含经 Windows Terminal 承载的 **PowerShell / CMD** 零补丁目标）：
 
 - 🎬 用**任意图片或视频**（mp4 / webm / gif / webp / png / jpg）作为整个界面的背景，视频静音循环播放
 - 🌌 未设置壁纸时显示内置的**动态极光渐变**兜底
@@ -22,7 +22,7 @@
 
 ## English
 
-**ai-wallpaper** is a community patch that brings **animated wallpaper backgrounds** to **11 popular AI desktop apps** (ZCode and more — the full list is in the Chinese docs), plus a unified GUI wallpaper manager. Zero-patch targets for **PowerShell / CMD** (via Windows Terminal) are included as well.
+**ai-wallpaper** is a community patch that brings **animated wallpaper backgrounds** to **12 popular AI desktop apps** (ZCode and more — the full list is in the Chinese docs), plus a unified GUI wallpaper manager. Zero-patch targets for **PowerShell / CMD** (via Windows Terminal) are included as well.
 
 - 🎬 Use **any image or video** (mp4 / webm / gif / webp / png / jpg) as the app's full-window background — videos loop silently
 - 🌌 Built-in animated aurora gradient as the fallback when no wallpaper is set
@@ -77,6 +77,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App Codex
 powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App Doubao       # 豆包（不改程序文件，免 Node）
 powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App Marvis       # 腾讯 Marvis（离线页内联补丁，零 UAC、免 Node）
 powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App DeepSeekHarness  # DeepSeek Harness（回环前端页内联补丁，零 UAC、免 Node）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App Qoder        # Qoder（asar 原地补丁 + wp:// 桥，需 Node，Qoder 处于关闭状态）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App AutoClaw     # AutoClaw（asar 原地补丁，无需 Node；运行中会请求 UAC 提权结束进程）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App AutoClaw2    # AutoClaw2 v42.6.1 新版（散装 resources\app，files 打法，免 Node）
 ```
 
 脚本会自动：
@@ -100,6 +103,17 @@ Roaming 离线缓存（`%APPDATA%\Tencent\Marvis\marvis-offline-page\using\`）�
 **DeepSeek Harness**（开源 DSH Desktop，`%LOCALAPPDATA%\Programs\DSH Desktop`）与 Marvis 同款
 **回环前端页内联补丁**：壁纸脚本内联进 `resources\app\node_modules\@deepseek-ai\dsh-web-frontend\dist\index.html`，
 媒体走回环服务的 `/dsh` 虚拟根（`~\.dsh\wallpaper\`）。零 UAC、免 Node、无需关应用；正常快捷方式启动即带壁纸。
+
+**Qoder**（`Qoder CN`，Electron + Vite/React 壳）与 OpenCode 同族：**asar 原地补丁 + `wp://` 协议桥**，
+需要 Node、并且执行时 Qoder 必须完全退出（脚本检测到进程会直接中止，不做任何改动）。
+壁纸目录 `~\.qoder\wallpaper\`；换壁纸 / 调不透明度 / 轮换全部几秒内热生效，无需重启。详见下方「工作原理」。
+
+**AutoClaw2**（v42.6.1 起的新版，独立安装在 `<AutoClaw>\AutoClaw2\`，与旧版并存）走 **files 打法**：
+新版 app 是散装 `resources\app` 目录（无 asar），补丁 = 备份并改写渲染器入口
+`dist\renderer\zwork.html` + 落地 `oc-wallpaper.js`（复用 AutoClaw 版脚本，`--theme-*` 皮肤令牌通用）。
+免 Node；主窗口 file:// 加载、无 CSP，无需协议桥。壁纸目录 `%APPDATA%\AutoClaw-official\wallpaper\`。
+注意开始菜单会有两个同名「AutoClaw」入口（用户级的指 AutoClaw2），且打补丁需 UAC 结束管理员
+权限的常驻进程。
 
 **Windows PowerShell / CMD 是零安装目标**：无需运行 apply-patch，也无需关闭任何程序——只要检测到
 Windows Terminal 的 `settings.json`（商店版 / 预览版 / 散装版任一），选择器启动时自动创建壁纸目录
@@ -351,6 +365,41 @@ OpenCode / WorkBuddy / Codex 的壁纸目录与选择器快捷方式按应用名
    不用缓存穿透参数，轮换集（不同 URL）热切换正常，同名 wallpaper.* 覆盖需重启才可见。
 6. 兼容模式的顶部控制条是独立的 `compatibility-chrome.html` 窗口（file://），保持原样不透明；
    窗口标题被外壳接管时 ✦ 标记不显示，以壁纸可见为准。
+
+**Qoder**（`Qoder CN.exe`，Electron + Vite/React 壳，归档内 `out\renderer` 与 ZCode 同款布局）走
+**asar 原地补丁 + `wp://` 协议桥 + 页内 CSP 放宽**，是 OpenCode 那条路线的第二个用户：
+
+1. **必须改 asar**：主程序 fuse 实测 `onlyLoadAppFromAsar` 开启（`resources\app` 散装目录被忽略），
+   `EnableEmbeddedAsarIntegrityValidation` 也开启（2026-09-24 修正：首发误判为关闭，打完补丁
+   一启动就 `asar_util.cc` FATAL Integrity check failed）→ 原地补丁之外还要 `ExeHash` 等长改写
+   主程序内嵌的 asar 头部哈希（ASCII hex，恰好 1 处），原版主程序备份 `Qoder CN.exe.zwp-backup`，
+   回滚时随 asar 一并还原。
+   归档内 `out\renderer\index.html` 注入 `<script src="./oc-wallpaper.js">`，
+   `.unpacked` 只保住在磁盘上真实存在的 24 条原生模块引用（sharp / node-pty 等），
+   另 15 条跨平台残留（darwin / win32-arm64 prebuilds）由 patch-inplace 清理腾出头部预算。
+2. **`wp://` 协议桥**：主窗口经自有特权协议加载（国内容器版为 `qoder-cn-app://renderer/index.html`，
+   国际版 `qoder-app`）→ Chromium 拒绝该页读 `file://` 子资源。补丁在 `out\main\index.js` 的
+   `registerSchemesAsPrivileged([{scheme:"rum-event"…` 处追加 `wp` 特权协议（该锚点全文件恰好 1 处，
+   另一处是函数定义，故用 Qoder 专属锚点文件 `wp-scheme-find-qoder.txt`），并在文件末尾追加协议处理器，
+   把 `wp://local/...` 映射到 `~\.qoder\wallpaper\`（带 Range，视频可拖动）。
+3. **页内 CSP 放宽**（`patch-inplace.js --relax-csp`）：Qoder 的 index.html 自带
+   `default-src 'self'` 且**未声明 media-src**（→ 回落 default-src，视频必被拦）。补丁在已存在的
+   `img-src` / `style-src` 源列表尾部追加 `wp:`，并新增一条 `media-src 'self' wp:;`——
+   只追加不重复声明同名指令（Chromium 取首个，重复写会失效）。
+4. **透明化 = 运行时大块扫描**（`oc-wallpaper-qoder.js`）：Qoder 界面色值令牌是构建期混淆名
+   （`--q6b0d27`、`--qe66069` 之类，随版本重排），不像 ZCode/OpenCode 有语义令牌可覆盖 →
+   根层（`html` / `body` / `#root` / 启动页）一律置透，界面主体按几何与算得色扫描：
+   盖住视口、全高侧栏或主内容大面板（对话区/workbench，≥80% 高 + ≥50% 宽，2026-09-24 追加，
+   此前对话区主面板两类都不命中、被不透明白底盖死）的纯色背景统一压到
+   `--ocwp-ui-alpha`（「界面不透明度」滑杆驱动，缺省 .55），
+   小块卡片/弹窗保持不透明保证可读；首帧三次 + 可见时 12 秒低频轮询（同 Marvis / Reasonix）。
+   2026-09-24 补坑两处：其一，样式表版根层透明会被主题表 `html[data-theme=…] body/#root`
+   的 important 属性选择器规则压过（特异性更高且后加载；forest-light 浅色主题实测 body 被
+   刷回不透明白、壁纸整个被盖死）→ 根层透明改为**内联 `!important`**（不受层叠影响）并周期
+   重申，覆盖 React 重挂载与主题切换；其二，Chromium 对被遮挡/最小化窗口置
+   `visibilityState=hidden` 并暂停壁纸视频 → `visibilitychange` 重新可见时立即重扫并恢复播放。
+5. 与 ZCode 一样支持 `?v=` / `?t=` 缓存穿透（`wp://` 桥按 pathname 取文件，查询串天然忽略），
+   所以换壁纸、改 `custom.css`、轮换标记全部**热生效免重启**。
 
 Electron 的 asar 本质是一个打包格式，任何 Electron 应用的 HTML 入口都可以用同样的思路注入自定义 CSS/JS——欢迎参考改造其他应用。
 

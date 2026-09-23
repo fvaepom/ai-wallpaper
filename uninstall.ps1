@@ -6,7 +6,7 @@ param([switch]$KeepPatches)
 $ErrorActionPreference = 'Continue'
 $hub = $PSScriptRoot
 $apps = @('ZCode', 'OpenCode', 'WorkBuddy', 'Codex', 'TraeCN', 'TraeWorkCN',
-          'AutoClaw', 'Doubao', 'Marvis', 'Reasonix', 'DeepSeekHarness')
+          'AutoClaw', 'AutoClaw2', 'Doubao', 'Marvis', 'Reasonix', 'DeepSeekHarness', 'Qoder')
 
 if (-not $KeepPatches) {
     $ok = @(); $skip = @(); $fail = @()

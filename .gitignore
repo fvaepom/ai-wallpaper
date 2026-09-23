@@ -10,3 +10,6 @@ release/
 .mimosa/
 node_modules/
 docs/_dbg*
+
+# 本机临时脚本
+_tmp*

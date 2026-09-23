@@ -107,7 +107,7 @@ $script:I18N = @{
     fixOneKey          = '一键修复'
     fixSummary         = '{0} 的壁纸补丁已失效（多为应用升级覆盖），点「一键修复」自动重打'
     fixDetailItem      = '{0}：{1}'
-    noAppsMsg          = '未检测到可管理的应用（ZCode / WorkBuddy / OpenCode / Codex / Trae / AutoClaw / Marvis / Reasonix / DeepSeek Harness / PowerShell / CMD）。\n请先在对应应用上执行 apply-patch.ps1 安装壁纸补丁。'
+    noAppsMsg          = '未检测到可管理的应用（ZCode / WorkBuddy / OpenCode / Codex / Trae / AutoClaw / AutoClaw2 / Marvis / Reasonix / DeepSeek Harness / Qoder / PowerShell / CMD）。\n请先在对应应用上执行 apply-patch.ps1 安装壁纸补丁。'
     healthAgentMissing = '壁纸代理缺失，重新运行 apply-patch.ps1 -App {0} 安装'
     healthOfflineMissing = '离线页缓存不存在（启动一次 Marvis 后再试）'
     healthOfflineLost  = '壁纸补丁已丢失（多半是 Marvis 更新了离线页缓存）'
@@ -294,7 +294,7 @@ $script:I18N = @{
     fixOneKey          = 'Repair'
     fixSummary         = 'Wallpaper patch lost for {0} (usually an app update overwrote it). Click “Repair” to re-apply.'
     fixDetailItem      = '{0}: {1}'
-    noAppsMsg          = 'No manageable apps detected (ZCode / WorkBuddy / OpenCode / Codex / Trae / AutoClaw / Marvis / Reasonix / DeepSeek Harness / PowerShell / CMD).\nRun apply-patch.ps1 against an app first to install the wallpaper patch.'
+    noAppsMsg          = 'No manageable apps detected (ZCode / WorkBuddy / OpenCode / Codex / Trae / AutoClaw / AutoClaw2 / Marvis / Reasonix / DeepSeek Harness / Qoder / PowerShell / CMD).\nRun apply-patch.ps1 against an app first to install the wallpaper patch.'
     healthAgentMissing = 'Wallpaper agent missing — re-run apply-patch.ps1 -App {0} to install'
     healthOfflineMissing = 'Offline-page cache not found (launch Marvis once, then retry)'
     healthOfflineLost  = 'Wallpaper patch lost (Marvis most likely refreshed its offline-page cache)'
@@ -507,6 +507,11 @@ $AllApps = @(
        ExeCandidates = @('F:\AIcodeprogram\AUTOCLAW\AutoClaw.exe');
        Lnk = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\AutoClaw.lnk';
        PatchId = 'AutoClaw' },
+    @{ Name = 'AutoClaw2'; Dir = (Join-Path $env:APPDATA 'AutoClaw-official\wallpaper'); Proc = 'AutoClaw2';
+       # AutoClaw2（v42.6.1 新版）：与旧版并存；用户级开始菜单里同名「AutoClaw」入口即指向本版
+       ExeCandidates = @('F:\AIcodeprogram\AUTOCLAW\AutoClaw2\AutoClaw2.exe');
+       Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoClaw.lnk";
+       PatchId = 'AutoClaw2' },
     @{ Name = 'Marvis';    Dir = (Join-Path $env:USERPROFILE '.marvis\wallpaper');    Proc = 'Marvis';
        # 腾讯 Marvis（Qt5+CEF）：壁纸脚本内联注入 Roaming 离线页 + zwp-media junction，
        # 换壁纸经 refresh 标记热生效。Marvis.exe 需管理员 → 重启走 -Verb RunAs
@@ -536,6 +541,13 @@ $AllApps = @(
        Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\DSH Desktop.lnk";
        PatchId = 'DeepSeekHarness';
        ProbeRel = 'app\node_modules\@deepseek-ai\dsh-web-frontend\dist\index.html' },
+    @{ Name = 'Qoder';     Dir = (Join-Path $env:USERPROFILE '.qoder\wallpaper');      Proc = 'Qoder CN';
+       # Qoder 桌面端（Electron + Vite/React，归档内 out\renderer 与 ZCode 同款布局）：asar 原地补丁，
+       # 主窗口经自有特权协议 qoder-cn-app://renderer/ 加载 → 壁纸走 wp:// 协议桥 + 放宽页内 CSP；
+       # 界面色值令牌为构建期混淆名 → 透明化由注入脚本运行时扫描完成，滑杆照旧经 custom.css 生效
+       ExeCandidates = @('F:\AIcodeprogram\Qoder CN\Qoder CN.exe', 'C:\Program files\Qoder CN\Qoder CN.exe');
+       Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Qoder CN.lnk";
+       PatchId = 'Qoder' },
     @{ Name = 'PowerShell'; Dir = (Join-Path $env:USERPROFILE '.terminal\wallpaper-ps'); Proc = 'WindowsTerminal';
        ExeCandidates = @(); Lnk = '';
        # PowerShell / CMD 由 Windows Terminal 承载（零补丁）：壁纸写入 settings.json 对应 profile 的

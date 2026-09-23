@@ -71,8 +71,15 @@
     '  --theme-chrome-bg:rgba(255,255,255,.55) !important;',
     '  --theme-nav-bg:rgba(255,255,255,.55) !important;',
     '  --theme-input-bg:rgba(255,255,255,.6) !important;',
+    '  --bg-page:rgba(255,255,255,.5) !important;',
     '  --ocwp-popup-bg:#ffffff !important;}',
     'html,body{background:transparent !important;}',
+
+    /* AutoClaw2（v42.6.1 新版 UI）：外壳 .zwork-shell / 首页 .zwork-home 自带不透明实色底
+       （.shell 背景 = --grey-12 实色，未走 --theme-* 体系），元素级置透明让壁纸透出；
+       --bg-page（新版令牌，推荐栏边缘渐隐渐变在用）一并改半透明。这些类/令牌仅新版存在，
+       对旧版 AutoClaw 无影响 */
+    '.zwork-shell,.zwork-home{background:transparent !important;}',
 
     'body[data-theme*="dark" i],html[data-theme*="dark" i],body.dark,html.dark{',
     '  --theme-bg:rgba(24,24,26,.6) !important;',
@@ -86,6 +93,7 @@
     '  --theme-chrome-bg:rgba(24,24,26,.6) !important;',
     '  --theme-nav-bg:rgba(24,24,26,.6) !important;',
     '  --theme-input-bg:rgba(45,45,48,.65) !important;',
+    '  --bg-page:rgba(24,24,26,.6) !important;',
     '  --ocwp-popup-bg:#1b1c22 !important;}'
   ].join('\n');
   document.head.appendChild(style);
