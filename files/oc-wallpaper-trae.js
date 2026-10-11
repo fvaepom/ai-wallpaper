@@ -1,9 +1,9 @@
 /* zwp-ver:2 (2026-09-16) — 体检/apply-patch 据此识别已部署脚本是否为旧版 */
-/* zcode-wallpaper — 壁纸层 + 界面透明化注入脚本（Trae CN / TRAE SOLO CN 版）
+/* zcode-wallpaper — 壁纸层 + 界面透明化注入脚本（Trae CN 版，2026-10 合并版起编辑器与 SOLO 窗口共用）
  *
- * 由 apply-patch.ps1 注入到应用主窗口 HTML（workbench.html / solo-lite.html 同目录）。
+ * 由 apply-patch.ps1 注入到应用窗口 HTML（workbench.html / solo-lite.html 同目录）。
  * 壁纸查找顺序：
- *   1. 自动轮换（检测到 %USERPROFILE%\.trae-cn\wallpaper[-solo]\rotate\rotate-1.* 时启用）：
+ *   1. 自动轮换（检测到 %USERPROFILE%\.trae-cn\wallpaper\rotate\rotate-1.* 时启用）：
  *      每次页面加载按 localStorage 计数器换下一张 rotate-N.*
  *   2. 壁纸目录下的 wallpaper.mp4 / .webm / .gif / .webp / .png / .jpg
  *   3. 本文件同目录下的 wallpaper.*

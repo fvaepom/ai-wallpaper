@@ -1,4 +1,4 @@
-﻿# ai-wallpaper — ZCode / OpenCode / WorkBuddy / Codex Desktop / Trae CN / Trae Work / Doubao 动态壁纸补丁
+﻿# ai-wallpaper — ZCode / OpenCode / WorkBuddy / Codex Desktop / Trae CN / Doubao 动态壁纸补丁
 # 用法：
 #   ZCode:     powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1
 #   OpenCode:  powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App OpenCode
@@ -6,8 +6,9 @@
 #   Codex:     powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App Codex
 #              （微软商店 MSIX 包，脚本会自动请求管理员授权；商店更新应用后需重新执行）
 #   Trae CN:   powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App TraeCN
-#   Trae Work: powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App TraeWorkCN
-#              （两者为散装 resources\app 目录，零依赖直改文件；应用升级后需重新执行）
+#              （散装 resources\app 目录，零依赖直改文件；应用升级后需重新执行。
+#               2026-10 起原独立应用 Trae Work 并入 Trae CN，同一安装内 workbench 与 SOLO
+#               两个窗口 HTML 一并打补丁，壁纸统一 .trae-cn\wallpaper）
 #   Doubao:    powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App Doubao
 #              （Chromium 壳 CDP 代理方案：不改程序文件、免关应用、免 Node；升级不影响，重跑即可）
 #   Marvis:    powershell -NoProfile -ExecutionPolicy Bypass -File .\apply-patch.ps1 -App Marvis
@@ -154,6 +155,10 @@ $Apps = @{
         # 与 OpenCode/Codex 同款 wp:// 协议桥（注册特权协议 + 主进程服务壁纸目录），
         # CSP 放宽 img/media/style-src 允许 wp:
         ProbeRel    = 'app\out\vs\code\electron-browser\workbench\workbench.html'
+        # 合并版（2026-10，原 Trae Work / TRAE SOLO CN 并入）：同一安装内有第二个主窗口
+        # SOLO 外壳 solo-lite.html（无 CSP meta），一并备份/注入/落地脚本；壁纸与编辑器窗口
+        # 共用 .trae-cn\wallpaper（wallpaper-solo 为旧独立应用遗留，不再使用）
+        ExtraProbes = @('app\out\vs\code\electron-browser\solo\solo-lite.html')
         InjectSrc   = 'oc-wallpaper-trae.js'
         Method      = 'files'
         # 多锚点回退：不同构建的入口脚本名可能是 workbench.js / workbench-esm.js 等；
@@ -161,24 +166,6 @@ $Apps = @{
         InjectBefore = @('<script src="./workbench.js"', '<script src="./workbench-esm.js"',
                          '<script src="./workbench-desktop.js"')
         RelaxCsp    = $true
-        WallUrl     = 'wp://local'
-        MainBridge  = $true
-        BridgeRel   = 'app\out\main.js'
-    }
-    'TraeWorkCN' = @{
-        Process     = 'TRAE SOLO CN'
-        WallDir     = Join-Path $env:USERPROFILE '.trae-cn\wallpaper-solo'
-        Lnk         = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TRAE Work CN\TRAE Work CN.lnk"
-        Candidates  = @('F:\AIcodeprogram\TRAE SOLO CN', "$env:LOCALAPPDATA\Programs\TRAE SOLO CN",
-                        'F:\Program files\TRAE SOLO CN', 'C:\Program files\TRAE SOLO CN')
-        # 同 TraeCN（同一代码底座）。注意两个应用共用 .trae-cn 数据目录，壁纸目录分设 wallpaper-solo。
-        # SOLO 主窗口是自定义外壳 solo-lite.html（无 CSP meta，无需放宽；开始菜单名「TRAE Work CN」）
-        ProbeRel    = 'app\out\vs\code\electron-browser\solo\solo-lite.html'
-        InjectSrc   = 'oc-wallpaper-trae.js'
-        Method      = 'files'
-        InjectBefore = @('<script src="./workbench.js"', '<script src="./workbench-esm.js"',
-                         '<script src="./workbench-desktop.js"')
-        RelaxCsp    = $false
         WallUrl     = 'wp://local'
         MainBridge  = $true
         BridgeRel   = 'app\out\main.js'
@@ -377,6 +364,13 @@ function Test-PatchPresent {
         $htmlPath = Join-Path $res $Cfg.ProbeRel
         if (-not (Test-Path $htmlPath)) { return $false }
         if ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') { return $false }
+        # 合并版多窗口（Trae CN：workbench + SOLO solo-lite）：存在的窗口 HTML 都必须已打补丁
+        foreach ($extra in @($Cfg.ExtraProbes)) {
+            if (-not $extra) { continue }
+            $extraPath = Join-Path $res $extra
+            if (-not (Test-Path $extraPath)) { continue }
+            if ([IO.File]::ReadAllText($extraPath) -notmatch 'oc-wallpaper') { return $false }
+        }
         if ($Cfg.MainBridge) {
             $mainJs = Join-Path $res $Cfg.BridgeRel
             if (-not (Test-Path $mainJs)) { return $false }
@@ -411,12 +405,19 @@ function Test-ScriptStale {
             return (-not ([IO.File]::ReadAllText($idx).Contains($mark)))
         }
         if ($Cfg.Method -eq 'files') {
-            # 散装型（Trae / Reasonix）：优先查 html 同目录的外链注入脚本，无则查 html（内联）
-            $htmlPath = Join-Path $res $Cfg.ProbeRel
-            if (-not (Test-Path $htmlPath)) { return $false }
-            $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($js) { return (-not ([IO.File]::ReadAllText($js.FullName).Contains($mark))) }
-            return (-not ([IO.File]::ReadAllText($htmlPath).Contains($mark)))
+            # 散装型（Trae / Reasonix）：优先查 html 同目录的外链注入脚本，无则查 html（内联）。
+            # 合并版 Trae CN 有两个窗口目录（workbench / solo）：任一脚本为旧版即整档 stale
+            $probeRels = @($Cfg.ProbeRel)
+            if ($Cfg.ExtraProbes) { $probeRels += @($Cfg.ExtraProbes) }
+            foreach ($rel in $probeRels) {
+                if (-not $rel) { continue }
+                $htmlPath = Join-Path $res $rel
+                if (-not (Test-Path $htmlPath)) { continue }
+                $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($js) { return (-not ([IO.File]::ReadAllText($js.FullName).Contains($mark))) }
+                return (-not ([IO.File]::ReadAllText($htmlPath).Contains($mark)))
+            }
+            return $false
         }
         # asar 型（ZCode / WorkBuddy / OpenCode / AutoClaw）：头部 JSON 定位 oc-wallpaper.js，读内容头部
         if (-not (Test-Path $asar)) { return $false }
@@ -680,13 +681,23 @@ if ($Rollback) {
     $target = Find-Target
     $res = Join-Path $target 'resources'
     if ($Cfg.Method -eq 'files') {
-        # Trae 系：恢复主窗口 HTML 与主进程 bundle、移除注入脚本文件
+        # Trae 系：恢复主窗口 HTML（含合并版 SOLO 窗口）与主进程 bundle、移除注入脚本文件
         $htmlPath = Join-Path $res $Cfg.ProbeRel
         $htmlBak  = "$htmlPath.zwp-backup"
         if (-not (Test-Path $htmlBak)) { throw "未找到备份文件 $htmlBak，无法回滚。" }
         Write-Step "恢复原版主窗口 HTML（$($Cfg.ProbeRel)）"
         Copy-Item $htmlBak $htmlPath -Force
         Remove-Item (Join-Path (Split-Path $htmlPath) 'oc-wallpaper.js') -Force -ErrorAction SilentlyContinue
+        foreach ($extra in @($Cfg.ExtraProbes)) {
+            if (-not $extra) { continue }
+            $extraPath = Join-Path $res $extra
+            $extraBak  = "$extraPath.zwp-backup"
+            if ((Test-Path $extraPath) -and (Test-Path $extraBak)) {
+                Write-Step "恢复原版窗口 HTML（$extra）"
+                Copy-Item $extraBak $extraPath -Force
+                Remove-Item (Join-Path (Split-Path $extraPath) 'oc-wallpaper.js') -Force -ErrorAction SilentlyContinue
+            }
+        }
         if ($Cfg.MainBridge) {
             $mainJs  = Join-Path $res $Cfg.BridgeRel
             $mainBak = "$mainJs.zwp-backup"
@@ -1068,6 +1079,11 @@ if ($run) {
             $htmlPath = Join-Path $res $Cfg.ProbeRel
             if (-not (Test-Path "$htmlPath.zwp-backup")) { throw "无原版备份（$htmlPath.zwp-backup），无法 -Force。" }
             Copy-Item "$htmlPath.zwp-backup" $htmlPath -Force
+            foreach ($extra in @($Cfg.ExtraProbes)) {
+                if (-not $extra) { continue }
+                $extraPath = Join-Path $res $extra
+                if (Test-Path "$extraPath.zwp-backup") { Copy-Item "$extraPath.zwp-backup" $extraPath -Force }
+            }
             if ($Cfg.MainBridge) {
                 $mainJs = Join-Path $res $Cfg.BridgeRel
                 if (Test-Path "$mainJs.zwp-backup") { Copy-Item "$mainJs.zwp-backup" $mainJs -Force }
@@ -1111,51 +1127,62 @@ if ($run) {
 }
 
 if ($run -and $Cfg.Method -eq 'files') {
-    # Trae 系：散装 resources\app 目录，直接备份/改写主窗口 HTML + 落地注入脚本
-    $htmlPath = Join-Path $res $Cfg.ProbeRel
-    if (-not (Test-Path $htmlPath)) { throw "未找到主窗口 HTML（$($Cfg.ProbeRel)），此版本结构可能不兼容。" }
-    $htmlDir  = Split-Path $htmlPath
-    $htmlBak  = "$htmlPath.zwp-backup"
-    if (-not (Test-Path $htmlBak)) {
-        Write-Step "备份原版主窗口 HTML"
-        Copy-Item $htmlPath $htmlBak
-        Write-Ok "备份到 $htmlBak"
-    } else {
-        Write-Warn2 "已存在备份 $htmlBak（跳过备份，避免补丁版覆盖原版备份）"
-    }
-
-    Write-Step "落地壁纸注入脚本"
-    Write-Utf8NoBom (Join-Path $htmlDir 'oc-wallpaper.js') $wpContent
-
-    $html = [IO.File]::ReadAllText($htmlPath)
-    if ($html -match 'oc-wallpaper') {
-        Write-Warn2 "HTML 已包含壁纸脚本（跳过重复注入）"
-    } else {
-        # 多锚点回退：依次尝试候选注入点；全部落空退到"第一个 <script 标签前"
-        # （壁纸脚本本身兼容 body 未就绪，极早注入无害）
-        $marker = $null
-        foreach ($mk in (@($Cfg.InjectBefore) + @('<script'))) {
-            if ($mk -and $html.IndexOf($mk) -ge 0) { $marker = $mk; break }
+    # Trae 系：散装 resources\app 目录，直接备份/改写主窗口 HTML + 落地注入脚本。
+    # 合并版 Trae CN（原 Trae Work 并入）同一安装内有 workbench 与 SOLO solo-lite 两个窗口
+    # HTML，逐个处理；主窗口缺失视为结构不兼容，可选窗口缺失（旧构建无 SOLO）静默跳过
+    $probeRels = @($Cfg.ProbeRel)
+    if ($Cfg.ExtraProbes) { $probeRels += @($Cfg.ExtraProbes) }
+    foreach ($probeRel in $probeRels) {
+        if (-not $probeRel) { continue }
+        $htmlPath = Join-Path $res $probeRel
+        if (-not (Test-Path $htmlPath)) {
+            if ($probeRel -eq $Cfg.ProbeRel) { throw "未找到主窗口 HTML（$($Cfg.ProbeRel)），此版本结构可能不兼容。" }
+            Write-Warn2 "可选窗口 HTML 不存在（$probeRel），跳过"
+            continue
         }
-        if (-not $marker) {
-            throw "HTML 中未找到任何注入点（候选: $($Cfg.InjectBefore -join ' / ')），此版本可能不兼容。"
+        $htmlDir  = Split-Path $htmlPath
+        $htmlBak  = "$htmlPath.zwp-backup"
+        if (-not (Test-Path $htmlBak)) {
+            Write-Step "备份原版主窗口 HTML（$probeRel）"
+            Copy-Item $htmlPath $htmlBak
+            Write-Ok "备份到 $htmlBak"
+        } else {
+            Write-Warn2 "已存在备份 $htmlBak（跳过备份，避免补丁版覆盖原版备份）"
         }
-        $html = $html.Replace($marker, '<script src="./oc-wallpaper.js"></script>' + $marker)
-        Write-Ok ("壁纸脚本标签已注入（锚点: " + $marker.Substring(0, [Math]::Min(40, $marker.Length)) + "…）")
+
+        Write-Step "落地壁纸注入脚本"
+        Write-Utf8NoBom (Join-Path $htmlDir 'oc-wallpaper.js') $wpContent
+
+        $html = [IO.File]::ReadAllText($htmlPath)
+        if ($html -match 'oc-wallpaper') {
+            Write-Warn2 "HTML 已包含壁纸脚本（跳过重复注入）"
+        } else {
+            # 多锚点回退：依次尝试候选注入点；全部落空退到"第一个 <script 标签前"
+            # （壁纸脚本本身兼容 body 未就绪，极早注入无害）
+            $marker = $null
+            foreach ($mk in (@($Cfg.InjectBefore) + @('<script'))) {
+                if ($mk -and $html.IndexOf($mk) -ge 0) { $marker = $mk; break }
+            }
+            if (-not $marker) {
+                throw "HTML 中未找到任何注入点（候选: $($Cfg.InjectBefore -join ' / ')），此版本可能不兼容。"
+            }
+            $html = $html.Replace($marker, '<script src="./oc-wallpaper.js"></script>' + $marker)
+            Write-Ok ("壁纸脚本标签已注入（锚点: " + $marker.Substring(0, [Math]::Min(40, $marker.Length)) + "…）")
+        }
+        if ($Cfg.RelaxCsp -and $html -match 'Content-Security-Policy') {
+            # 允许壁纸子资源：wp:// 协议桥（custom.css 样式表、图片/视频、refresh 标记探测）+ file: 兜底
+            $html = [regex]::Replace($html, '(?s)(\b(img-src|media-src|style-src)\b)([^;]*?)(;)', {
+                param($m)
+                $body = $m.Groups[3].Value
+                if ($body -notmatch '(?<![a-zA-Z-])wp:(?![a-zA-Z-])')   { $body += ' wp:' }
+                if ($body -notmatch '(?<![a-zA-Z-])file:(?![a-zA-Z-])') { $body += ' file:' }
+                return $m.Groups[1].Value + $body + $m.Groups[4].Value
+            })
+            Write-Ok "CSP 已放宽（img/media/style-src 允许 wp: 与 file:）"
+        }
+        Write-Utf8NoBom $htmlPath $html
+        Write-Ok "主窗口 HTML 已更新（$probeRel）"
     }
-    if ($Cfg.RelaxCsp -and $html -match 'Content-Security-Policy') {
-        # 允许壁纸子资源：wp:// 协议桥（custom.css 样式表、图片/视频、refresh 标记探测）+ file: 兜底
-        $html = [regex]::Replace($html, '(?s)(\b(img-src|media-src|style-src)\b)([^;]*?)(;)', {
-            param($m)
-            $body = $m.Groups[3].Value
-            if ($body -notmatch '(?<![a-zA-Z-])wp:(?![a-zA-Z-])')   { $body += ' wp:' }
-            if ($body -notmatch '(?<![a-zA-Z-])file:(?![a-zA-Z-])') { $body += ' file:' }
-            return $m.Groups[1].Value + $body + $m.Groups[4].Value
-        })
-        Write-Ok "CSP 已放宽（img/media/style-src 允许 wp: 与 file:）"
-    }
-    Write-Utf8NoBom $htmlPath $html
-    Write-Ok "主窗口 HTML 已更新"
 
     if ($Cfg.MainBridge) {
         # 主进程桥：wp:// 协议服务壁纸目录，绕过 vscode-file:// 页面对 file:// 子资源的拦截

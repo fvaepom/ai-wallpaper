@@ -9,10 +9,10 @@
 
 $ErrorActionPreference = 'Continue'
 $repo = $PSScriptRoot
-$apps = @('ZCode', 'OpenCode', 'WorkBuddy', 'Codex', 'TraeCN', 'TraeWorkCN', 'AutoClaw', 'AutoClaw2', 'Doubao', 'Marvis', 'Reasonix', 'DeepSeekHarness', 'Qoder')
+$apps = @('ZCode', 'OpenCode', 'WorkBuddy', 'Codex', 'TraeCN', 'AutoClaw', 'AutoClaw2', 'Doubao', 'Marvis', 'Reasonix', 'DeepSeekHarness', 'Qoder')
 $procNames = @{
     ZCode = 'ZCode'; OpenCode = 'OpenCode'; WorkBuddy = 'WorkBuddy'; Codex = 'ChatGPT'
-    TraeCN = 'Trae CN'; TraeWorkCN = 'TRAE SOLO CN'; AutoClaw = 'AutoClaw'; AutoClaw2 = 'AutoClaw2'; Doubao = 'Doubao'; Marvis = 'Marvis'; Reasonix = 'Reasonix'; DeepSeekHarness = 'DSH Desktop'
+    TraeCN = 'Trae CN'; AutoClaw = 'AutoClaw'; AutoClaw2 = 'AutoClaw2'; Doubao = 'Doubao'; Marvis = 'Marvis'; Reasonix = 'Reasonix'; DeepSeekHarness = 'DSH Desktop'
     Qoder = 'Qoder CN'
 }
 

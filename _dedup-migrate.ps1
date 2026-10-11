@@ -14,8 +14,8 @@ $groups = @(
     @{ Canonical = Join-Path $hub 'wallpaper\dedup-b.mp4'
        Members   = @(
            @{ Name='WorkBuddy';  Dir="$env:USERPROFILE\.workbuddy\wallpaper";      Process='WorkBuddy' },
-           @{ Name='TraeCN';     Dir="$env:USERPROFILE\.trae-cn\wallpaper";        Process='Trae CN' },
-           @{ Name='TraeWorkCN'; Dir="$env:USERPROFILE\.trae-cn\wallpaper-solo";   Process='TRAE SOLO CN' }
+           @{ Name='TraeCN';     Dir="$env:USERPROFILE\.trae-cn\wallpaper";        Process='Trae CN' }
+           # TraeWorkCN（旧 .trae-cn\wallpaper-solo）已随 2026-10 Trae 合并版移除
        ) }
 )
 

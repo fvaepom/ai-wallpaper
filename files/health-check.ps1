@@ -37,8 +37,8 @@ $Apps = @(
     # Codex（2026-09-15 起）：散装副本 + CDP 代理（与豆包同架构）。补丁 = hub 里的启动器文件；
     # InstallDir 用于「未安装」判定（散装目录不存在且进程不在 → 视为未安装，避免无谓报 broken）
     @{ App = 'Codex';      Kind = 'agent'; Process = 'ChatGPT';      AgentFiles = @('codex-launcher.ps1', 'codex-launcher.vbs'); InstallDir = "$env:USERPROFILE\CodexPatched" },
-    @{ App = 'TraeCN';     Kind = 'files'; Process = 'Trae CN';      Html = 'app\out\vs\code\electron-browser\workbench\workbench.html'; Candidates = @('F:\AIcodeprogram\Trae CN', "$env:LOCALAPPDATA\Programs\Trae CN") },
-    @{ App = 'TraeWorkCN'; Kind = 'files'; Process = 'TRAE SOLO CN'; Html = 'app\out\vs\code\electron-browser\solo\solo-lite.html';      Candidates = @('F:\AIcodeprogram\TRAE SOLO CN', "$env:LOCALAPPDATA\Programs\TRAE SOLO CN") },
+    # Trae CN（2026-10 合并版）：原 Trae Work 并入，同一安装内还有 SOLO 窗口 solo-lite.html
+    @{ App = 'TraeCN';     Kind = 'files'; Process = 'Trae CN';      Html = 'app\out\vs\code\electron-browser\workbench\workbench.html'; ExtraHtmls = @('app\out\vs\code\electron-browser\solo\solo-lite.html'); Candidates = @('F:\AIcodeprogram\Trae CN', "$env:LOCALAPPDATA\Programs\Trae CN") },
     @{ App = 'AutoClaw';   Kind = 'asar';  Process = 'AutoClaw';     Candidates = @('F:\AIcodeprogram\AUTOCLAW', 'C:\Program files\AutoClaw', "$env:LOCALAPPDATA\Programs\AutoClaw") },
     # AutoClaw2（v42.6.1 新版，散装 resources\app）：files 打法无主进程桥 → NoBridge 跳过桥检查
     @{ App = 'AutoClaw2';  Kind = 'files'; Process = 'AutoClaw2';    Html = 'app\dist\renderer\zwork.html'; NoBridge = $true; Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoClaw.lnk"; Candidates = @('F:\AIcodeprogram\AUTOCLAW\AutoClaw2') },
@@ -187,6 +187,15 @@ function Test-AppHealth($a) {
             }
             $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($js) { if (-not (Test-TextHasVer $js.FullName)) { return 'stale' } }
+            # 合并版多窗口（Trae CN：workbench + SOLO solo-lite）：存在的窗口都要已打补丁且脚本为新版
+            foreach ($extra in @($a.ExtraHtmls)) {
+                if (-not $extra) { continue }
+                $ep = Join-Path (Join-Path $root 'resources') $extra
+                if (-not (Test-Path $ep)) { continue }
+                if ([IO.File]::ReadAllText($ep) -notmatch 'oc-wallpaper') { return 'broken' }
+                $ejs = Get-ChildItem (Split-Path $ep) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($ejs -and -not (Test-TextHasVer $ejs.FullName)) { return 'stale' }
+            }
             return 'ok'
         }
         $asarPath = Resolve-Asar $a

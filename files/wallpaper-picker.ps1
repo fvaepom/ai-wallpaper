@@ -490,13 +490,9 @@ $AllApps = @(
        ExeCandidates = @('F:\AIcodeprogram\Trae CN\Trae CN.exe');
        Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Trae CN\Trae CN.lnk";
        PatchId = 'TraeCN';
-       # Trae 系为散装 resources\app 目录（无 app.asar），补丁探测点是主窗口 HTML
+       # Trae 系为散装 resources\app 目录（无 app.asar），补丁探测点是主窗口 HTML。
+       # 2026-10 合并版：原 Trae Work 并入，编辑器与 SOLO 窗口共用本壁纸目录
        ProbeRel = 'app\out\vs\code\electron-browser\workbench\workbench.html' },
-    @{ Name = 'Trae Work CN'; Dir = (Join-Path $env:USERPROFILE '.trae-cn\wallpaper-solo'); Proc = 'TRAE SOLO CN';
-       ExeCandidates = @('F:\AIcodeprogram\TRAE SOLO CN\TRAE SOLO CN.exe');
-       Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\TRAE Work CN\TRAE Work CN.lnk";
-       PatchId = 'TraeWorkCN';
-       ProbeRel = 'app\out\vs\code\electron-browser\solo\solo-lite.html' },
     @{ Name = 'Doubao';    Dir = (Join-Path $env:USERPROFILE '.doubao\wallpaper');    Proc = 'Doubao';
        ExeCandidates = @('F:\Program files\Doubao\Doubao.exe', 'C:\Program files\Doubao\Doubao.exe');
        Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Doubao.lnk";
@@ -508,10 +504,13 @@ $AllApps = @(
        Lnk = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\AutoClaw.lnk';
        PatchId = 'AutoClaw' },
     @{ Name = 'AutoClaw2'; Dir = (Join-Path $env:APPDATA 'AutoClaw-official\wallpaper'); Proc = 'AutoClaw2';
-       # AutoClaw2（v42.6.1 新版）：与旧版并存；用户级开始菜单里同名「AutoClaw」入口即指向本版
+       # AutoClaw2（v42.6.1 新版）：与旧版并存；用户级开始菜单里同名「AutoClaw」入口即指向本版。
+       # files 方案（散装 resources\app，无 app.asar）→ 必须给 ProbeRel 指向主窗口 HTML，
+       # 否则探测回落 app.asar 恒失败，选择器永远「未找到安装目录」、无法改壁纸（2026-09-26 修）
        ExeCandidates = @('F:\AIcodeprogram\AUTOCLAW\AutoClaw2\AutoClaw2.exe');
        Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\AutoClaw.lnk";
-       PatchId = 'AutoClaw2' },
+       PatchId = 'AutoClaw2';
+       ProbeRel = 'app\dist\renderer\zwork.html' },
     @{ Name = 'Marvis';    Dir = (Join-Path $env:USERPROFILE '.marvis\wallpaper');    Proc = 'Marvis';
        # 腾讯 Marvis（Qt5+CEF）：壁纸脚本内联注入 Roaming 离线页 + zwp-media junction，
        # 换壁纸经 refresh 标记热生效。Marvis.exe 需管理员 → 重启走 -Verb RunAs

@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = 'Continue'
 $repo = $PSScriptRoot
-$apps = @('ZCode', 'OpenCode', 'WorkBuddy', 'Codex', 'TraeCN', 'TraeWorkCN',
+$apps = @('ZCode', 'OpenCode', 'WorkBuddy', 'Codex', 'TraeCN',
           'AutoClaw', 'AutoClaw2', 'Doubao', 'Marvis', 'Reasonix', 'DeepSeekHarness', 'Qoder')
 
 $ok = @(); $skip = @(); $fail = @()
