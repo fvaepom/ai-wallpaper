@@ -1,6 +1,8 @@
 /* zwp-ver:2 (2026-09-23；2026-09-24 根层内联透明 + 可见恢复播放，修复主题表
    html[data-theme] important 规则压过样式表透明导致壁纸被白底盖死、以及窗口
-   遮挡暂停视频不恢复的问题）— 体检/apply-patch 据此识别已部署脚本是否为旧版
+   遮挡暂停视频不恢复的问题；2026-10-14 大块元素清 background-image——皮肤渐变
+   (linear-gradient 铺满 loop-chrome-window) 画在背景色之上整窗盖死壁纸，仅压
+   backgroundColor 无效)— 体检/apply-patch 据此识别已部署脚本是否为旧版
    （旧版不支持 --ocwp-ui-alpha 不透明度滑杆、custom.css 热重载等，见 README「注入脚本版本」）*/
 /* ai-wallpaper — Qoder 壁纸层 + 界面透明化注入脚本
  *
@@ -109,7 +111,16 @@
            保持不透明白底把对话区盖死（用户实测反馈）；中大型弹窗（高 <80%）不受影响 */
         var wide = (r.height >= vh * 0.8 && r.width >= vw * 0.5);
         if (!full && !tall && !wide) continue;
-        var bg = getComputedStyle(el).backgroundColor;
+        var cs = getComputedStyle(el);
+        /* 2026-10-14：皮肤/主题会往整面容器刷 background-image 渐变（用户皮肤的
+           loop-chrome-window 即 linear-gradient(浅黄→灰蓝) 铺满全窗），backgroundColor
+           压透明对它无效——渐变画在背景色之上、壁纸之前，整窗盖死。大块元素一律
+           清掉 background-image 让位壁纸；每 tick 重扫，皮肤换新渐变下一 tick 照删 */
+        var bi = cs.backgroundImage;
+        if (bi && bi !== 'none') {
+          el.style.setProperty('background-image', 'none', 'important');
+        }
+        var bg = cs.backgroundColor;
         var m = bg && bg.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/);
         if (!m) continue;
         var a = (m[4] === undefined) ? 1 : parseFloat(m[4]);

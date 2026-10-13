@@ -475,7 +475,10 @@ $AllApps = @(
        Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\ZCode.lnk" },
     @{ Name = 'WorkBuddy'; Dir = (Join-Path $env:USERPROFILE '.workbuddy\wallpaper'); Proc = 'WorkBuddy';
        ExeCandidates = @('F:\Program files\WorkBuddy\WorkBuddy.exe', 'C:\Program files\WorkBuddy\WorkBuddy.exe');
-       Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\WorkBuddy.lnk" },
+       Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\WorkBuddy.lnk";
+       # 5.8.2 起 index.html 外置（app.asar.unpacked\renderer\）→ files 打法探测点；
+       # asar 里不再有 oc-wallpaper 条目，必须给 ProbeRel 否则体检恒报「补丁失效」
+       ProbeRel = 'app.asar.unpacked\renderer\index.html' },
     @{ Name = 'OpenCode';  Dir = (Join-Path $env:USERPROFILE '.opencode\wallpaper');  Proc = 'OpenCode';
        ExeCandidates = @("$env:LOCALAPPDATA\Programs\@opencode-aidesktop\OpenCode.exe");
        Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\OpenCode.lnk" },

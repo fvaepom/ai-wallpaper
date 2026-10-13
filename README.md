@@ -264,7 +264,10 @@ ZCode Desktop 是 Electron 应用，界面打包在 `resources\app.asar` 中：
    - 没有壁纸文件时启用 CSS 动画极光兜底
 4. 重新打包 asar 替换回去（`--unpack` 保持原生模块外置，打包后与原 `.unpacked` 目录清单比对校验）
 
-**WorkBuddy**（腾讯，Electron 37）不能走解包重打包，有三处特殊处理，由零依赖的 `files/patch-inplace.js` 完成：
+**WorkBuddy**（腾讯，Electron 37）不能走解包重打包。**2026-10-12 的 5.8.2 起改走 files 打法**（见
+上方 2026-10-13 变更记录）：入口 `index.html` 被官方外置到 `app.asar.unpacked\renderer\`，直接改该文件
++ 落地注入脚本，asar 与主程序零改动。以下三处特殊处理属于 **5.8.1 及更早版本的 inplace 原地补丁**
+（旧版本安装仍按此方式，由零依赖的 `files/patch-inplace.js` 完成）：
 
 1. **asar 原地补丁**：其 asar 索引引用了约 3000 个 unpacked 文件（含安装器未落盘的跨平台残留条目），
    解包重打包会破坏结构。原地补丁只改写头部 + 把新的 index.html / 注入脚本追加到归档末尾，
@@ -405,7 +408,7 @@ Electron 的 asar 本质是一个打包格式，任何 Electron 应用的 HTML �
 
 ## 已知限制
 
-- 应用**升级后补丁会被覆盖**：打开「AI壁纸设置」点**一键修复**即可（见上文），或重新执行 `apply-patch.ps1`（先更新本仓库以适配新版，主 bundle 文件名带 hash 会变化，脚本用正则定位所以通常无需改动）。WorkBuddy 升级还会恢复其主程序（含新的内嵌哈希），重新打补丁即可。**Codex 的商店更新是整包替换**（安装目录版本号变化），更新后一键修复会重新走 UAC 授权补上。豆包升级**不受影响**（未改程序文件），从快捷方式启动即可。
+- 应用**升级后补丁会被覆盖**：打开「AI壁纸设置」点**一键修复**即可（见上文），或重新执行 `apply-patch.ps1`（先更新本仓库以适配新版，主 bundle 文件名带 hash 会变化，脚本用正则定位所以通常无需改动）。WorkBuddy 5.8.2 起补丁在 `app.asar.unpacked\renderer\` 的外置 HTML 上，升级覆盖后一键修复即恢复；更早版本还会恢复其主程序（含新的内嵌哈希）。**Codex 的商店更新是整包替换**（安装目录版本号变化），更新后一键修复会重新走 UAC 授权补上。豆包升级**不受影响**（未改程序文件），从快捷方式启动即可。
 - 豆包壁纸依赖「豆包」快捷方式携带的调试端口参数：开机自启 / 固定到任务栏的入口若直接指向官方 exe 则无壁纸；调试端口仅监听 127.0.0.1 且限白名单端口段
 - Marvis 的壁纸补丁在 Roaming 离线缓存里，**Marvis 自动更新离线页会覆盖补丁**：一键修复或重跑 `apply-patch.ps1 -App Marvis` 即可（零 UAC）。重启 Marvis 需管理员（其 exe 清单 requireAdministrator）；热切换已去掉缓存穿透参数，手动覆盖同名壁纸文件需重启才刷新；窗口标题不显示 ✦ 属正常。媒体服务（127.0.0.1:19399）只监听本机回环、仅服务壁纸目录，由计划任务「AI壁纸媒体服务」登录自启
 - DeepSeek Harness（DSH Desktop）同受「跨源带查询串被外壳拦截」限制：**选择器覆盖同名壁纸文件后需重启应用**才可见（轮换集热切换正常）；未交互前视频壁纸暂停在第 2 秒画面（autoplay 需用户手势，首次点击/按键即开始播放）；应用升级覆盖补丁后重跑 `apply-patch.ps1 -App DeepSeekHarness`（零 UAC、免关应用）
@@ -468,6 +471,75 @@ Electron 的 asar 本质是一个打包格式，任何 Electron 应用的 HTML �
 - **清理**：删除已废弃的 marvis-launcher（29KB 死代码，且其 `setBypassCSP` 参数名有误）；
   删除 codex-launcher 内嵌但从未启动的回环媒体服务器（约 70 行）；修正 Codex 启动器乱码的
   base64 中文串、Marvis/Reasonix 注入脚本描述旧方案的失实注释。
+
+## 2026-10-13 · Qoder 0.4.4 适配 + 备份随版本刷新
+
+Qoder 官方 0.4.4 更新包 10-10 下载待装，其 NSIS 安装器的「卸载旧版文件」步骤连续三次失败
+（10-11、10-13 两次自动尝试 nsis-timeout，手动跑也一样——疑似安全软件拦截 NSIS 卸载器
+"自复制 TEMP 再执行"模式；launcher 的 state.ini 还会误标 healthy）。处理：
+
+- **手动完成更新**：用 7-Zip 从官方 pending 安装包直接解出 `$PLUGINSDIR\app-64.7z`
+  （0.4.4 完整文件树），旧目录整体改名 `Qoder CN.old-0.4.1` 保留，新树解压回原路径。
+  注册表卸载项/快捷方式/launcher 均指向同一路径，无需其他修复；确认正常后可删除
+  `Qoder CN.old-0.4.1` 释放约 700MB。
+- **补丁锚点 0.4.4 全部有效**：`out/renderer/index.html` 仍在归档内、bundle 仍为
+  `assets/index-*.js`、`registerSchemesAsPrivileged([{scheme:"rum-event"` 恰 1 处
+  （0.4.1 同款双引号写法）、页内 CSP meta 同构 → apply-patch 无需改动直接重打成功
+  （自校验 3620 文件、exe 内嵌哈希同步 1 处——0.4.4 的 fuse 依旧开启）。CDP 实测：
+  标题 ✦、`wp://local/wallpaper.mp4` 播放中、大面板 alpha 压到 `--ocwp-ui-alpha`。
+- **10-14 追加：壁纸"看不见"的真凶是皮肤的 background-image 渐变**。用户自制的 Qoder
+  皮肤往 `loop-chrome-window`（全窗容器）刷 `linear-gradient(浅黄→灰蓝)`——渐变画在
+  backgroundColor 之上、壁纸之前，整窗盖死；而运行时扫描只压 backgroundColor，DOM 各项
+  指标全部正常（视频播放、容器 alpha 0.2）壁纸却一点看不见。修复：`deopaque()` 对大块
+  元素（全屏/全高侧栏/大面板三类）同时清 `background-image`（内联 none !important），
+  每 tick 重扫、皮肤换新渐变下个 tick 照删。排查经验：**验证壁纸必须截图看实际渲染
+  （CDP Page.captureScreenshot 或桌面截图），DOM 指标全绿 ≠ 壁纸可见**。
+- **备份随版本刷新（inplace 方法）**：当前 asar 是未打补丁的原版（应用刚升级）而旧备份
+  还在时，自动把 asar 备份刷新为当前版本，exe 备份一并刷新——旧备份属上一版应用，
+  留着会在 -Force / 回滚时把新版降级回旧版（WorkBuddy 那个滞留 5.5.6 的 exe 备份就是
+  现成反例）。files 方法（Trae/AutoClaw2/WorkBuddy）的同款加固当日早些时候已上。
+- 经验：**Qoder 更新卡「卸载旧版」时，直接解包更新盘内 pending 安装包替换文件**
+  比反复重试安装器可靠；launcher 的 healthy 状态标记不可信，以 exe 版本为准。
+
+## 2026-10-13 · WorkBuddy 5.8.2 适配：入口 HTML 外置，改走 files 打法
+
+10-12 晚 WorkBuddy 自动升级 5.8.2 后一键修复报「原地补丁失败」。根因：5.8.2 把渲染器入口
+`renderer/index.html`（及 markdown-shared-guest 等）**从归档内部移到了磁盘上的
+`resources\app.asar.unpacked\renderer\`**（asar 头部标 `unpacked`），patch-inplace 按
+「归档内文件」定位 index.html 直接报错；主 bundle 也从 `assets/index-*.js` 改名
+`assets/host-*.js`。适配（apply-patch / health-check / 选择器三处同步）：
+
+- **WorkBuddy 从 inplace 原地补丁改走与 Trae / AutoClaw2 同款 files 打法**：直接改外置的
+  `app.asar.unpacked\renderer\index.html` + 落地 `oc-wallpaper.js` 到同目录，**asar 数据区与
+  主程序完全不动**——主程序内嵌 asar 头部哈希从此不再需要同步改写，腾讯官方数字签名得以保留
+  （README 最初那条「签名失效」副作用对 5.8.2 起的装法不再成立）。
+- **关键坑一：页面 URL 仍是 asar 虚拟路径**（主进程 `pathToFileURL(.../app.asar/renderer/index.html)`，
+  index.html 由 asar 层重定向到外置文件读取）。注入标签若用相对 `./oc-wallpaper.js` 会解析进
+  归档内部而查不到（头部没有这个条目）。新增 `AbsoluteScriptTag` 配置：注入落地文件自身的
+  绝对 file:// URL（`file:///…/app.asar.unpacked/renderer/oc-wallpaper.js`，`[Uri]::AbsoluteUri`
+  自带百分号转义）。Electron 的 asar 识别只认 `.asar` 后跟路径分隔符，`app.asar.unpacked\…`
+  按真实文件读取（与主进程自身的 `withAsarUnpackedCandidate` 同款机制）。
+- **关键坑二（首版适配漏掉，当天晚些修复）：Electron 对外置文件按 asar 头部记录的原始
+  size 封顶服务**。直接插入 111 B 的 `<script>` 标签会把文件尾部挤出截断线——5.8.2 的
+  `<div id="root">`（React 挂载点）和 skeleton-bootstrap 恰在尾部 113 B 内，被截掉后
+  createRoot 拿到 null（React error #299），应用窗口出现但**永远卡在骨架屏**（用户视角
+  就是"打不开"；✦ 标记和壁纸层来自注入脚本自身，不能作为适配成功的判据！React 挂载
+  成功后骨架才会被拆除，以骨架消失为准）。修复：新增零依赖 `files/patch-unpacked-html.js`
+  做**字节中性补丁**——插入多少字节，就把文件里的空行（`\r\n\r\n` → `\r\n`）折叠掉多少，
+  保证总长 ≤ asar 头部记录的原始 size；HTML/CSS/无模板字面量的内联 JS 中删空行绝对安全。
+  实测 27954 → 27840（头 27841），React 正常挂载、骨架拆除、壁纸视频正常。
+- ⚠ 排障教训：**外置 HTML 补丁后必须验证 `#root` 存在且骨架被拆除**（CDP
+  `!!document.getElementById('root')` + `!document.getElementById('skeleton-root')`），
+  不能只看 ✦ / 壁纸层——它们属于注入脚本自己。
+- files 打法备份规则顺手加固：当前 HTML 是**未打补丁的原版**时（应用刚升级覆盖），把
+  `.zwp-backup` 刷新为当前版本——旧备份属上一个应用版本，留着会在 -Force / 回滚时把新版 HTML
+  降级回旧版（对 Trae / AutoClaw2 同样生效）。
+- 本机遗留处置：`WorkBuddy.exe.zwp-backup` 是 5.5.6 时代的旧版主程序，对 5.8.2 安装已失效
+  且有「回滚降级」风险，已改名 `WorkBuddy.exe.zwp-backup-5.5.6-旧版勿还原`；
+  `app.asar.zwp-backup`（5.8.2 原版）保留但新流程不再读写。
+- 验证方式备注：**WorkBuddy 5.8.2 的原生窗口标题不跟随 document.title**（与 Marvis/DSH 同款），
+  窗口标题看不到 ✦ 不代表失效——以壁纸与界面可用为准，或经 CDP 查 `document.title`、
+  `#oc-wallpaper`、`#root`。
 
 ## 2026-09-17 · WorkBuddy 对话窗口去白遮罩
 

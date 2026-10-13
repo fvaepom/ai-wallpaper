@@ -33,7 +33,9 @@ if (Test-Path $RestoredFile) {
 $Apps = @(
     @{ App = 'ZCode';      Kind = 'asar';  Process = 'ZCode';        Candidates = @('F:\Program files\ZCode', 'C:\Program files\ZCode', "$env:LOCALAPPDATA\Programs\zcode", "$env:LOCALAPPDATA\Programs\ZCode") },
     @{ App = 'OpenCode';   Kind = 'asar';  Process = 'OpenCode';     Candidates = @("$env:LOCALAPPDATA\Programs\@opencode-aidesktop", 'F:\Program files\OpenCode', 'C:\Program files\OpenCode', "$env:LOCALAPPDATA\Programs\OpenCode") },
-    @{ App = 'WorkBuddy';  Kind = 'asar';  Process = 'WorkBuddy';    Candidates = @('F:\Program files\WorkBuddy', 'C:\Program files\WorkBuddy', "$env:LOCALAPPDATA\Programs\WorkBuddy") },
+    # WorkBuddy（2026-10-12 起 5.8.2）：渲染器入口 index.html 外置到 app.asar.unpacked\renderer\
+    # （asar 头部标 unpacked）→ 与 Trae/AutoClaw2 同款 files 打法探测，asar 不再是补丁载体
+    @{ App = 'WorkBuddy';  Kind = 'files'; Process = 'WorkBuddy';    Html = 'app.asar.unpacked\renderer\index.html'; NoBridge = $true; Candidates = @('F:\Program files\WorkBuddy', 'C:\Program files\WorkBuddy', "$env:LOCALAPPDATA\Programs\WorkBuddy") },
     # Codex（2026-09-15 起）：散装副本 + CDP 代理（与豆包同架构）。补丁 = hub 里的启动器文件；
     # InstallDir 用于「未安装」判定（散装目录不存在且进程不在 → 视为未安装，避免无谓报 broken）
     @{ App = 'Codex';      Kind = 'agent'; Process = 'ChatGPT';      AgentFiles = @('codex-launcher.ps1', 'codex-launcher.vbs'); InstallDir = "$env:USERPROFILE\CodexPatched" },

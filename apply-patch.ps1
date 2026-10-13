@@ -114,13 +114,17 @@ $Apps = @{
         Lnk         = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\WorkBuddy.lnk"
         Candidates  = @('F:\Program files\WorkBuddy', 'C:\Program files\WorkBuddy',
                         "$env:LOCALAPPDATA\Programs\WorkBuddy", "$env:LOCALAPPDATA\Programs\workbuddy")
-        # 原地补丁（asar 内目录 renderer；索引带 integrity 且含大量悬空 unpacked 引用，
-        # 常规重打包会把几千个文本文件嵌进 asar 并破坏可执行文件外置 → 用 patch-inplace.js）
-        RendererDir = 'renderer'
+        # 2026-10-12 升级 5.8.2：渲染器入口 index.html 外置到 resources\app.asar.unpacked\renderer\
+        # （asar 头部标 unpacked，旧原地补丁按"归档内文件"处理直接报错），改走与 Trae / AutoClaw2
+        # 同款 files 打法：直接改该外置文件 + 落地注入脚本。asar 数据区与主程序（内嵌 asar 头部
+        # 哈希的完整性 fuse）完全不动——主程序哈希更新从此不再需要，腾讯官方签名也得以保留。
+        # ⚠ 页面 URL 仍是 asar 虚拟路径（file:…/app.asar/renderer/index.html），相对
+        # ./oc-wallpaper.js 会落进归档查不到 → AbsoluteScriptTag 注入绝对 file:// URL
+        ProbeRel    = 'app.asar.unpacked\renderer\index.html'
         InjectSrc   = 'oc-wallpaper-vscode.js'
-        Method      = 'inplace'
-        BundleName  = 'index'
-        ExeHash     = $true   # Electron asar 完整性 fuse 开启，需同步更新主程序内嵌头部哈希
+        Method      = 'files'
+        InjectBefore = @('<script type="module"')
+        AbsoluteScriptTag = $true
     }
     'Codex' = @{
         Process     = 'ChatGPT'   # OpenAI.Codex 商店包：主程序为 app\ChatGPT.exe（Codex 桌面端）
@@ -1097,17 +1101,25 @@ if ($run) {
             }
         }
     }
+    $refreshBackup = $false
     if ($Cfg.Method -ne 'files') {
-        if (-not (Test-Path $bak)) {
-            if (Test-AsarPatched $asar) {
+        if (Test-AsarPatched $asar) {
+            if (-not (Test-Path $bak)) {
                 Write-Warn2 "当前 app.asar 已是补丁版且无原版备份：跳过备份（不把补丁版当原版）"
             } else {
-                Write-Step "备份原版 app.asar"
-                Copy-Item $asar $bak
-                Write-Ok "备份到 $bak"
+                Write-Warn2 "已存在备份 $bak（跳过备份，避免补丁版覆盖原版备份）"
             }
+        } elseif (Test-Path $bak) {
+            # 当前 asar 是未打补丁的原版（多半应用刚升级覆盖了补丁）→ 顺手把备份刷新到当前版本：
+            # 旧备份属上一个应用版本，留着会在 -Force / 回滚时把新版本降级回旧版（2026-10-13 踩坑：
+            # WorkBuddy exe 备份滞留 5.5.6，差一点被当"原版"还原到 5.8.2 上）
+            $refreshBackup = $true
+            Copy-Item $asar $bak -Force
+            Write-Ok "备份已刷新为当前版本（原备份属旧版应用）"
         } else {
-            Write-Warn2 "已存在备份 $bak（跳过备份，避免补丁版覆盖原版备份）"
+            Write-Step "备份原版 app.asar"
+            Copy-Item $asar $bak
+            Write-Ok "备份到 $bak"
         }
     }
 }
@@ -1146,6 +1158,11 @@ if ($run -and $Cfg.Method -eq 'files') {
             Write-Step "备份原版主窗口 HTML（$probeRel）"
             Copy-Item $htmlPath $htmlBak
             Write-Ok "备份到 $htmlBak"
+        } elseif ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') {
+            # 当前文件是未打补丁的原版（多半应用刚升级覆盖了补丁）→ 顺手把备份刷新到当前版本：
+            # 旧备份属上一个应用版本，留着会在 -Force / 回滚时把新版本 HTML 降级回旧版
+            Copy-Item $htmlPath $htmlBak -Force
+            Write-Ok "备份已刷新为当前版本（原备份属旧版应用）"
         } else {
             Write-Warn2 "已存在备份 $htmlBak（跳过备份，避免补丁版覆盖原版备份）"
         }
@@ -1153,34 +1170,49 @@ if ($run -and $Cfg.Method -eq 'files') {
         Write-Step "落地壁纸注入脚本"
         Write-Utf8NoBom (Join-Path $htmlDir 'oc-wallpaper.js') $wpContent
 
-        $html = [IO.File]::ReadAllText($htmlPath)
-        if ($html -match 'oc-wallpaper') {
-            Write-Warn2 "HTML 已包含壁纸脚本（跳过重复注入）"
+        if ($Cfg.AbsoluteScriptTag) {
+            # WorkBuddy 5.8.2：入口 index.html 外置（asar 头部标 unpacked）但文档 URL 仍是
+            # asar 虚拟路径 → 相对 ./oc-wallpaper.js 会落进归档查不到，改用落地文件自身的
+            # 绝对 file:// URL（[Uri]::AbsoluteUri 自带百分号转义）。
+            # ⚠ Electron 对外置文件按 asar 头记录的原始 size 封顶服务，直接插入标签会把
+            # 文件尾部（<div id="root"> 恰在尾部）挤出截断线 → React createRoot 拿到 null
+            # （error #299），应用永远卡骨架屏（2026-10-13 踩坑）。注入必须字节中性：
+            # patch-unpacked-html.js 插入多少字节，就从文件里折叠掉多少空行。
+            $scriptTag = '<script src="' + (New-Object Uri((Join-Path $htmlDir 'oc-wallpaper.js'))).AbsoluteUri + '"></script>'
+            $helperOut = & node (Join-Path $Script:RepoFiles 'patch-unpacked-html.js') $htmlPath $scriptTag 2>&1
+            if ($LASTEXITCODE -ne 0) { throw ("外置 HTML 字节中性补丁失败：`n" + ($helperOut | Out-String)) }
+            $helperOut | ForEach-Object { Write-Host $_ }
+            Write-Ok '壁纸脚本标签已注入（字节中性，锚点: <script type="module"…）'
         } else {
-            # 多锚点回退：依次尝试候选注入点；全部落空退到"第一个 <script 标签前"
-            # （壁纸脚本本身兼容 body 未就绪，极早注入无害）
-            $marker = $null
-            foreach ($mk in (@($Cfg.InjectBefore) + @('<script'))) {
-                if ($mk -and $html.IndexOf($mk) -ge 0) { $marker = $mk; break }
+            $html = [IO.File]::ReadAllText($htmlPath)
+            if ($html -match 'oc-wallpaper') {
+                Write-Warn2 "HTML 已包含壁纸脚本（跳过重复注入）"
+            } else {
+                # 多锚点回退：依次尝试候选注入点；全部落空退到"第一个 <script 标签前"
+                # （壁纸脚本本身兼容 body 未就绪，极早注入无害）
+                $marker = $null
+                foreach ($mk in (@($Cfg.InjectBefore) + @('<script'))) {
+                    if ($mk -and $html.IndexOf($mk) -ge 0) { $marker = $mk; break }
+                }
+                if (-not $marker) {
+                    throw "HTML 中未找到任何注入点（候选: $($Cfg.InjectBefore -join ' / ')），此版本可能不兼容。"
+                }
+                $html = $html.Replace($marker, '<script src="./oc-wallpaper.js"></script>' + $marker)
+                Write-Ok ("壁纸脚本标签已注入（锚点: " + $marker.Substring(0, [Math]::Min(40, $marker.Length)) + "…）")
             }
-            if (-not $marker) {
-                throw "HTML 中未找到任何注入点（候选: $($Cfg.InjectBefore -join ' / ')），此版本可能不兼容。"
+            if ($Cfg.RelaxCsp -and $html -match 'Content-Security-Policy') {
+                # 允许壁纸子资源：wp:// 协议桥（custom.css 样式表、图片/视频、refresh 标记探测）+ file: 兜底
+                $html = [regex]::Replace($html, '(?s)(\b(img-src|media-src|style-src)\b)([^;]*?)(;)', {
+                    param($m)
+                    $body = $m.Groups[3].Value
+                    if ($body -notmatch '(?<![a-zA-Z-])wp:(?![a-zA-Z-])')   { $body += ' wp:' }
+                    if ($body -notmatch '(?<![a-zA-Z-])file:(?![a-zA-Z-])') { $body += ' file:' }
+                    return $m.Groups[1].Value + $body + $m.Groups[4].Value
+                })
+                Write-Ok "CSP 已放宽（img/media/style-src 允许 wp: 与 file:）"
             }
-            $html = $html.Replace($marker, '<script src="./oc-wallpaper.js"></script>' + $marker)
-            Write-Ok ("壁纸脚本标签已注入（锚点: " + $marker.Substring(0, [Math]::Min(40, $marker.Length)) + "…）")
+            Write-Utf8NoBom $htmlPath $html
         }
-        if ($Cfg.RelaxCsp -and $html -match 'Content-Security-Policy') {
-            # 允许壁纸子资源：wp:// 协议桥（custom.css 样式表、图片/视频、refresh 标记探测）+ file: 兜底
-            $html = [regex]::Replace($html, '(?s)(\b(img-src|media-src|style-src)\b)([^;]*?)(;)', {
-                param($m)
-                $body = $m.Groups[3].Value
-                if ($body -notmatch '(?<![a-zA-Z-])wp:(?![a-zA-Z-])')   { $body += ' wp:' }
-                if ($body -notmatch '(?<![a-zA-Z-])file:(?![a-zA-Z-])') { $body += ' file:' }
-                return $m.Groups[1].Value + $body + $m.Groups[4].Value
-            })
-            Write-Ok "CSP 已放宽（img/media/style-src 允许 wp: 与 file:）"
-        }
-        Write-Utf8NoBom $htmlPath $html
         Write-Ok "主窗口 HTML 已更新（$probeRel）"
     }
 
@@ -1220,9 +1252,11 @@ if ($run -and $Cfg.Method -eq 'files') {
         # 主程序内嵌 app.asar 头部哈希（Electron asar 完整性 fuse），需一并备份与更新
         $exePath = Join-Path $target ($Cfg.Process + '.exe')
         $exeBak  = Join-Path $target ($Cfg.Process + '.exe.zwp-backup')
-        if (-not (Test-Path $exeBak)) {
+        if (-not (Test-Path $exeBak) -or $refreshBackup) {
+            # $refreshBackup = asar 备份刚随应用升级刷新过 → exe 与 asar 同版本发布，备份一并刷新，
+            # 避免 -Force / 回滚时拿旧版 exe 覆盖新版（内嵌哈希对应旧 asar，新版必然拒载）
             Write-Step "备份原版主程序"
-            Copy-Item $exePath $exeBak
+            Copy-Item $exePath $exeBak -Force
             Write-Ok "备份到 $exeBak"
         }
         $nodeArgs += @('--exe', $exePath)
