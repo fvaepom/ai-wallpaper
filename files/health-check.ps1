@@ -33,9 +33,10 @@ if (Test-Path $RestoredFile) {
 $Apps = @(
     @{ App = 'ZCode';      Kind = 'asar';  Process = 'ZCode';        Candidates = @('F:\Program files\ZCode', 'C:\Program files\ZCode', "$env:LOCALAPPDATA\Programs\zcode", "$env:LOCALAPPDATA\Programs\ZCode") },
     @{ App = 'OpenCode';   Kind = 'asar';  Process = 'OpenCode';     Candidates = @("$env:LOCALAPPDATA\Programs\@opencode-aidesktop", 'F:\Program files\OpenCode', 'C:\Program files\OpenCode', "$env:LOCALAPPDATA\Programs\OpenCode") },
-    # WorkBuddy（2026-10-12 起 5.8.2）：渲染器入口 index.html 外置到 app.asar.unpacked\renderer\
-    # （asar 头部标 unpacked）→ 与 Trae/AutoClaw2 同款 files 打法探测，asar 不再是补丁载体
-    @{ App = 'WorkBuddy';  Kind = 'files'; Process = 'WorkBuddy';    Html = 'app.asar.unpacked\renderer\index.html'; NoBridge = $true; Candidates = @('F:\Program files\WorkBuddy', 'C:\Program files\WorkBuddy', "$env:LOCALAPPDATA\Programs\WorkBuddy") },
+    # WorkBuddy：腾讯布局反复横跳——5.8.1- 归档内、5.8.2 外置 app.asar.unpacked\renderer\、
+    # 5.9.0+ 又回归档内。探测双模：优先 files（外置 index.html），外置文件不存在时
+    # FallbackAsar 回落 asar 探测（与 apply-patch 的运行时探测同规则）
+    @{ App = 'WorkBuddy';  Kind = 'files'; Process = 'WorkBuddy';    Html = 'app.asar.unpacked\renderer\index.html'; NoBridge = $true; FallbackAsar = $true; Candidates = @('F:\Program files\WorkBuddy', 'C:\Program files\WorkBuddy', "$env:LOCALAPPDATA\Programs\WorkBuddy") },
     # Codex（2026-09-15 起）：散装副本 + CDP 代理（与豆包同架构）。补丁 = hub 里的启动器文件；
     # InstallDir 用于「未安装」判定（散装目录不存在且进程不在 → 视为未安装，避免无谓报 broken）
     @{ App = 'Codex';      Kind = 'agent'; Process = 'ChatGPT';      AgentFiles = @('codex-launcher.ps1', 'codex-launcher.vbs'); InstallDir = "$env:USERPROFILE\CodexPatched" },
@@ -179,6 +180,26 @@ function Test-AppHealth($a) {
             foreach ($c in $a.Candidates) {
                 $p = Join-Path (Join-Path $c 'resources') $a.Html
                 if (Test-Path $p) { $htmlPath = $p; $root = $c; break }
+            }
+            if (-not $htmlPath -and $a.FallbackAsar) {
+                # WorkBuddy 5.9.0+：入口回到归档内（外置文件不存在）→ asar 探测，
+                # 与 apply-patch 安装流程的运行时双模探测同规则
+                $asarP = $null
+                foreach ($c in $a.Candidates) {
+                    $p = Join-Path (Join-Path $c 'resources') 'app.asar'
+                    if (Test-Path $p) { $asarP = $p; break }
+                }
+                if (-not $asarP) {
+                    $proc2 = Get-Process -Name $a.Process -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -First 1
+                    if ($proc2) {
+                        $p = Join-Path (Join-Path (Split-Path $proc2.Path) 'resources') 'app.asar'
+                        if (Test-Path $p) { $asarP = $p }
+                    }
+                }
+                if (-not $asarP) { return 'missing' }
+                if (-not (Test-AsarPatched $asarP)) { return 'broken' }
+                if (-not (Test-AsarScriptCurrent $asarP)) { return 'stale' }
+                return 'ok'
             }
             if (-not $htmlPath) { return 'missing' }
             if ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') { return 'broken' }

@@ -476,9 +476,10 @@ $AllApps = @(
     @{ Name = 'WorkBuddy'; Dir = (Join-Path $env:USERPROFILE '.workbuddy\wallpaper'); Proc = 'WorkBuddy';
        ExeCandidates = @('F:\Program files\WorkBuddy\WorkBuddy.exe', 'C:\Program files\WorkBuddy\WorkBuddy.exe');
        Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\WorkBuddy.lnk";
-       # 5.8.2 起 index.html 外置（app.asar.unpacked\renderer\）→ files 打法探测点；
-       # asar 里不再有 oc-wallpaper 条目，必须给 ProbeRel 否则体检恒报「补丁失效」
-       ProbeRel = 'app.asar.unpacked\renderer\index.html' },
+       # 腾讯布局反复横跳（5.8.1- 归档内、5.8.2 外置、5.9.0+ 又回归档内）：探测双模——
+       # 外置 index.html 存在按 files 探测；不存在时 FallbackAsar 回落 asar 探测
+       # （与 apply-patch 安装流程的运行时探测同规则）
+       ProbeRel = 'app.asar.unpacked\renderer\index.html'; FallbackAsar = $true },
     @{ Name = 'OpenCode';  Dir = (Join-Path $env:USERPROFILE '.opencode\wallpaper');  Proc = 'OpenCode';
        ExeCandidates = @("$env:LOCALAPPDATA\Programs\@opencode-aidesktop\OpenCode.exe");
        Lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\OpenCode.lnk" },
@@ -753,21 +754,24 @@ function Get-AppHealth([string]$name) {
     if (-not $h.Dir) { $h.Detail = (T 'healthNoDir'); return $h }
     if ($app.ProbeRel) {
         $htmlPath = Join-Path (Join-Path $h.Dir 'resources') $app.ProbeRel
-        if (-not (Test-Path $htmlPath)) { $h.Detail = (T 'healthNoHtml'); return $h }
-        if ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') {
-            $h.Broken = $true; $h.Detail = (T 'healthHtmlLost')
+        if (-not (Test-Path $htmlPath) -and -not $app.FallbackAsar) { $h.Detail = (T 'healthNoHtml'); return $h }
+        if (Test-Path $htmlPath) {
+            if ([IO.File]::ReadAllText($htmlPath) -notmatch 'oc-wallpaper') {
+                $h.Broken = $true; $h.Detail = (T 'healthHtmlLost')
+                return $h
+            }
+            # 外链注入脚本（Trae/Reasonix：oc-wallpaper*.js 与 html 同目录）→ 查脚本本体；
+            # 内联注入（DSH）→ html 全文即脚本，上面 ReadAllText 已含全文，直接查
+            $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if ($js) {
+                if (-not (Test-TextHasVer $js.FullName)) { $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale') }
+            } elseif (-not (Test-TextHasVer $htmlPath)) {
+                $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale')
+            }
             return $h
         }
-        # 外链注入脚本（Trae/Reasonix：oc-wallpaper*.js 与 html 同目录）→ 查脚本本体；
-        # 内联注入（DSH）→ html 全文即脚本，上面 ReadAllText 已含全文，直接查
-        $js = Get-ChildItem (Split-Path $htmlPath) -Filter 'oc-wallpaper*.js' -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        if ($js) {
-            if (-not (Test-TextHasVer $js.FullName)) { $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale') }
-        } elseif (-not (Test-TextHasVer $htmlPath)) {
-            $h.Broken = $true; $h.Stale = $true; $h.Detail = (T 'healthScriptStale')
-        }
-        return $h
+        # FallbackAsar：外置入口不存在（WorkBuddy 5.9.0+ 布局回归归档内）→ 落到下方 asar 检测
     }
     $asar = Join-Path $h.Dir 'resources\app.asar'
     if (-not (Test-Path $asar)) { $h.Detail = (T 'healthNoAsar'); return $h }

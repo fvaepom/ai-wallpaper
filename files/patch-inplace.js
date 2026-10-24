@@ -199,6 +199,10 @@ const bundlePatterns = [
   '(<script type="module" crossorigin src="\\./assets/' + bn + '-[^"]+\\.js"></script>)',
   '(<script[^>]+type="module"[^>]+src="\\./assets/' + bn + '-[^"]+\\.js"[^>]*></script>)',
   '(<script[^>]+src="\\./assets/' + bn + '-[^"]+\\.js"[^>]*></script>)',
+  /* 通用兜底（2026-10-15 Qoder 新构建）：入口 chunk 改为纯 hash 命名（assets/uLj0yi3D.js），
+     无 <name>- 前缀可锚 → 退而匹配任意 assets 内 module 脚本；单入口页只有 1 个 script，
+     多 script 构建仍优先命中前面带前缀的锚点 */
+  '(<script type="module" crossorigin src="\\./assets/[^"/]+\\.js"></script>)',
 ];
 let bundleRe = null;
 for (const p of bundlePatterns) {

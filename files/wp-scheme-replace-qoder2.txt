@@ -1,0 +1,4 @@
+;/* zcode-wallpaper：wp 特权协议独立注册（2026-10-15 起新版主 bundle 字符串混淆，
+;   无法锚点插入 Qoder 自有的 registerSchemesAsPrivileged 调用 → 改为插入入口第 0 行独立注册；
+;   Electron 多次调用为累积语义，且入口带顶层 await 时 ready 会推迟到求值结束，时序安全 */
+;import("electron").then(m=>{const e=m.default??m;try{e.registerSchemesAsPrivileged([{scheme:"wp",privileges:{secure:true,standard:true,supportFetchAPI:true,stream:true}}])}catch(_){}});

@@ -114,17 +114,16 @@ $Apps = @{
         Lnk         = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\WorkBuddy.lnk"
         Candidates  = @('F:\Program files\WorkBuddy', 'C:\Program files\WorkBuddy',
                         "$env:LOCALAPPDATA\Programs\WorkBuddy", "$env:LOCALAPPDATA\Programs\workbuddy")
-        # 2026-10-12 升级 5.8.2：渲染器入口 index.html 外置到 resources\app.asar.unpacked\renderer\
-        # （asar 头部标 unpacked，旧原地补丁按"归档内文件"处理直接报错），改走与 Trae / AutoClaw2
-        # 同款 files 打法：直接改该外置文件 + 落地注入脚本。asar 数据区与主程序（内嵌 asar 头部
-        # 哈希的完整性 fuse）完全不动——主程序哈希更新从此不再需要，腾讯官方签名也得以保留。
-        # ⚠ 页面 URL 仍是 asar 虚拟路径（file:…/app.asar/renderer/index.html），相对
-        # ./oc-wallpaper.js 会落进归档查不到 → AbsoluteScriptTag 注入绝对 file:// URL
-        ProbeRel    = 'app.asar.unpacked\renderer\index.html'
+        # 2026-10-24（5.9.0）：腾讯在两种入口布局间反复横跳——5.8.1 及更早 index.html 在归档内、
+        # 5.8.2 外置到 app.asar.unpacked\renderer\（asar 头部标 unpacked）、5.9.0 又放回归档内且
+        # bundle 由 index-*.js 改名 host-*.js。Method 不再写死：安装流程在 Find-Target 之后按本机
+        # 实际形态运行时探测双模切换（外置 → files 字节中性打法；归档内 → inplace + ExeHash）。
+        # 表内保留归档内型（inplace）基准配置；RendererDir/BundleName 由探测分支最终确定。
+        RendererDir = 'renderer'
         InjectSrc   = 'oc-wallpaper-vscode.js'
-        Method      = 'files'
-        InjectBefore = @('<script type="module"')
-        AbsoluteScriptTag = $true
+        Method      = 'inplace'
+        BundleName  = 'host'
+        ExeHash     = $true   # Electron asar 完整性 fuse 开启，需同步更新主程序内嵌头部哈希
     }
     'Codex' = @{
         Process     = 'ChatGPT'   # OpenAI.Codex 商店包：主程序为 app\ChatGPT.exe（Codex 桌面端）
@@ -320,8 +319,12 @@ $Apps = @{
         ExeHash     = $true
         WallUrl     = 'wp://local'
         MainBridge  = $true
-        SchemeFind     = 'wp-scheme-find-qoder.txt'
-        SchemeReplace  = 'wp-scheme-replace-qoder.txt'
+        # 协议桥锚点（2026-10-15 起新版主 bundle 字符串混淆，rum-event 明文锚点失效）：
+        # find 用零宽锚 \A（恰好匹配入口 index.js 第 0 处），replace 在第 0 行独立注册 wp 特权协议
+        # （Electron 多次调用累积语义）；协议处理器仍由 --also-patch 追加到 out/main/index.js 末尾。
+        # 旧版构建的 rum-event 明文锚点保留在 wp-scheme-find-qoder.txt（历史参考）
+        SchemeFind     = 'wp-scheme-find-qoder2.txt'
+        SchemeReplace  = 'wp-scheme-replace-qoder2.txt'
         RelaxCsp       = $true
     }
 }
@@ -1035,6 +1038,30 @@ if ($Cfg.Method -eq 'agent') {
 $target = Find-Target
 $res    = Join-Path $target 'resources'
 $asar   = Join-Path $res 'app.asar'
+if ($App -eq 'WorkBuddy') {
+    # 双模探测：腾讯布局反复横跳（5.8.1 归档内 → 5.8.2 外置 → 5.9.0 又回归档内），
+    # 以本机磁盘实态为准选打法，配置表只保留基准。
+    if (Test-Path (Join-Path $res 'app.asar.unpacked\renderer\index.html')) {
+        # 外置型（5.8.2）：files 打法 + 绝对 file:// URL + 字节中性注入（asar 头部按原始
+        # size 封顶服务外置文件，注入必须折叠等量空行，否则文件尾部的 <div id="root">
+        # 被截掉 → React #299 永卡骨架屏）
+        $Cfg.Method           = 'files'
+        $Cfg.ProbeRel         = 'app.asar.unpacked\renderer\index.html'
+        $Cfg.InjectBefore     = @('<script type="module"')
+        $Cfg.AbsoluteScriptTag = $true
+        Write-Ok "WorkBuddy 布局：入口外置 app.asar.unpacked\renderer\ → files 字节中性打法"
+    } else {
+        # 归档内型（5.8.1- / 5.9.0+）：inplace 原地补丁。bundle 前缀不逐版探测——5.9.0 起
+        # assets 同时存在 host-*.js 入口与 chunk（前缀枚举有歧义），而 index.html 只引用
+        # 唯一 module 入口标签；patch-inplace 的通用兜底锚点（任意 assets 内 module 脚本，
+        # 2026-10-15）保证前缀失配时照样命中。表内 BundleName='host' 即可。
+        $Cfg.Method = 'inplace'
+        $Cfg.RendererDir = 'renderer'
+        $Cfg.ExeHash = $true
+        $Cfg.BundleName = 'host'
+        Write-Ok "WorkBuddy 布局：入口在归档内 → inplace 原地补丁"
+    }
+}
 if ($Cfg.Method -eq 'files') {
     # Trae 系：无 app.asar，备份对象是主窗口 HTML
     $bak = ''

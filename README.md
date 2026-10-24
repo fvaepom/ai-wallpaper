@@ -381,10 +381,11 @@ OpenCode / WorkBuddy / Codex 的壁纸目录与选择器快捷方式按应用名
    `.unpacked` 只保住在磁盘上真实存在的 24 条原生模块引用（sharp / node-pty 等），
    另 15 条跨平台残留（darwin / win32-arm64 prebuilds）由 patch-inplace 清理腾出头部预算。
 2. **`wp://` 协议桥**：主窗口经自有特权协议加载（国内容器版为 `qoder-cn-app://renderer/index.html`，
-   国际版 `qoder-app`）→ Chromium 拒绝该页读 `file://` 子资源。补丁在 `out\main\index.js` 的
-   `registerSchemesAsPrivileged([{scheme:"rum-event"…` 处追加 `wp` 特权协议（该锚点全文件恰好 1 处，
-   另一处是函数定义，故用 Qoder 专属锚点文件 `wp-scheme-find-qoder.txt`），并在文件末尾追加协议处理器，
-   把 `wp://local/...` 映射到 `~\.qoder\wallpaper\`（带 Range，视频可拖动）。
+   国际版 `qoder-app`）→ Chromium 拒绝该页读 `file://` 子资源。补丁在 `out\main\index.js` 注册 wp
+   特权协议并在文件末尾追加协议处理器，把 `wp://local/...` 映射到 `~\.qoder\wallpaper\`（带 Range，
+   视频可拖动）。锚点随构建演进：2026-10-15 起主 bundle 字符串混淆且入口改纯 hash 命名（明文
+   `rum-event` 锚点失效）→ 注册语句以零宽锚 `^` 插入入口第 0 行独立注册（`wp-scheme-find/replace-qoder2.txt`，
+   Electron 多次注册为累积语义）；index.html 注入锚点同样补了纯 hash 命名兜底（patch-inplace 第 4 锚点）。
 3. **页内 CSP 放宽**（`patch-inplace.js --relax-csp`）：Qoder 的 index.html 自带
    `default-src 'self'` 且**未声明 media-src**（→ 回落 default-src，视频必被拦）。补丁在已存在的
    `img-src` / `style-src` 源列表尾部追加 `wp:`，并新增一条 `media-src 'self' wp:;`——
@@ -471,6 +472,26 @@ Electron 的 asar 本质是一个打包格式，任何 Electron 应用的 HTML �
 - **清理**：删除已废弃的 marvis-launcher（29KB 死代码，且其 `setBypassCSP` 参数名有误）；
   删除 codex-launcher 内嵌但从未启动的回环媒体服务器（约 70 行）；修正 Codex 启动器乱码的
   base64 中文串、Marvis/Reasonix 注入脚本描述旧方案的失实注释。
+
+## 2026-10-24 · WorkBuddy 5.9.0：入口又回归档内，方法改为运行时双模探测
+
+WorkBuddy 10-20 自动升级 5.9.0 后壁纸再失效：**腾讯把 5.8.2 外置到 `app.asar.unpacked\renderer\`
+的 index.html 又放回了归档内部**（unpacked 标记取消），v1.0.10 的 files 探测点直接消失（体检报
+missing）；bundle 沿用 `host-*.js`（assets 里同时存在入口与同名前缀 chunk，`--resolve` 前缀枚举
+有歧义）。适配：
+
+- **方法不再写死，按本机磁盘实态运行时探测**（apply-patch 在 Find-Target 之后双模切换）：
+  `app.asar.unpacked\renderer\index.html` 存在 → 5.8.2 型 files 字节中性打法（绝对 file:// URL +
+  patch-unpacked-html.js 折叠空行）；不存在 → 归档内型 inplace 原地补丁 + ExeHash。health-check
+  与选择器同步双模（外置文件缺失时 FallbackAsar 回落 asar 探测）。两种布局升级互切都能自动跟上。
+- inplace 的 bundle 前缀不逐版探测：5.9.0 起入口与 chunk 同为 `host-` 前缀（枚举必歧义），而
+  index.html 只引用唯一 module 入口标签 → 依赖 patch-inplace 的通用兜底锚点（2026-10-15 为
+  Qoder 纯 hash 命名加的第 4 锚点，任意 assets 内 module 脚本均命中），BundleName='host' 失配
+  也照样注入。
+- 5.9.0 实测：头部 2605352 B、悬空 unpacked 70 条清理腾出预算 → 头部原地改写；自校验 4602 文件
+  全过；exe 内嵌哈希 2 处同步（fuse 依旧开启）；CDP 验证 `#root` 挂载 + 骨架拆除 + 壁纸视频播放。
+- 备份随版本刷新链路首次实战生效：滞留的 5.8.2 原版 asar/exe 备份在重打时自动刷新为 5.9.0，
+  不会在后续 -Force / 回滚时把新版降级回 5.8.2。
 
 ## 2026-10-13 · Qoder 0.4.4 适配 + 备份随版本刷新
 
